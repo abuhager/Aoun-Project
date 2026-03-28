@@ -9,7 +9,7 @@ exports.register = async (req, res) => {
         // 1. التأكد إذا المستخدم موجود أصلاً
         let user = await User.findOne({ email });
         if (user) {
-            return res.status(400).json({ msg: 'هذا الحساب موجود مسبقاً' });
+            return res.status(400).json({ msg: 'هذا الحساب موجود ' });
         }
 
         // 2. منطق عون: فحص إذا كان طالب (Email ends with .edu or .edu.jo)
