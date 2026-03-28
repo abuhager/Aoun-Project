@@ -1,39 +1,70 @@
 const User = require('../models/User');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
-// دالة تسجيل مستخدم جديد
+// 1. دالة التسجيل (Register)
 exports.register = async (req, res) => {
     try {
         const { name, email, password } = req.body;
 
-        // 1. التأكد إذا المستخدم موجود أصلاً
+        // التأكد من عدم وجود المستخدم مسبقاً
         let user = await User.findOne({ email });
-        if (user) {
-            return res.status(400).json({ msg: 'هذا الحساب موجود ' });
-        }
+        if (user) return res.status(400).json({ msg: 'هذا الحساب موجود مسبقاً' });
 
-        // 2. منطق عون: فحص إذا كان طالب (Email ends with .edu or .edu.jo)
-        const isStudent = email.endsWith('.edu') || email.endsWith('.edu.jo');
+        // فحص إيميل الجامعات الأردنية والعالمية لمنح شارة طالب موثق
+        const isVerifiedStudent = email.endsWith('.edu') || email.endsWith('.edu.jo');
 
-        // 3. تشفير كلمة المرور
+        // تشفير الباسورد
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
-        // 4. إنشاء المستخدم الجديد
+        // إنشاء المستخدم
         user = new User({
             name,
             email,
             password: hashedPassword,
-            role: isStudent ? 'user' : 'user', // يمكن مستقبلاً تمييزهم بصلاحيات
-            // ملاحظة: سنضيف حقل isVerifiedStudent للموديل لاحقاً إذا أردت تفعيله بدقة
+            isVerifiedStudent // رح تاخذ true أو false لحالها حسب الإيميل
         });
 
         await user.save();
-        res.status(201).json({ 
-            msg: 'تم إنشاء الحساب بنجاح',
-            isStudent: isStudent ? 'تم توثيقك كطالب تلقائياً 🎓' : 'حساب عادي'
-        });
 
+        // توليد التوكن (JWT)
+        const payload = { user: { id: user.id, role: user.role } };
+        const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' }); // التوكن صالح لـ 7 أيام
+
+        res.status(201).json({ 
+            msg: 'تم إنشاء الحساب بنجاح', 
+            token, 
+            user: { name: user.name, email: user.email, isVerifiedStudent: user.isVerifiedStudent, role: user.role } 
+        });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('خطأ في السيرفر');
+    }
+};
+
+// 2. دالة تسجيل الدخول (Login)
+exports.login = async (req, res) => {
+    try {
+        const { email, password } = req.body;
+
+        // البحث عن المستخدم
+        let user = await User.findOne({ email });
+        if (!user) return res.status(400).json({ msg: 'بيانات الدخول غير صحيحة' });
+
+        // مطابقة الباسورد
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) return res.status(400).json({ msg: 'بيانات الدخول غير صحيحة' });
+
+        // توليد التوكن (JWT)
+        const payload = { user: { id: user.id, role: user.role } };
+        const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
+
+        res.json({ 
+            msg: 'تم تسجيل الدخول بنجاح',
+            token, 
+            user: { name: user.name, email: user.email, isVerifiedStudent: user.isVerifiedStudent, role: user.role } 
+        });
     } catch (err) {
         console.error(err.message);
         res.status(500).send('خطأ في السيرفر');
