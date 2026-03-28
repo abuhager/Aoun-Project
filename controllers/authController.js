@@ -50,11 +50,11 @@ exports.login = async (req, res) => {
 
         // البحث عن المستخدم
         let user = await User.findOne({ email });
-        if (!user) return res.status(400).json({ msg: 'بيانات الدخول غير صحيحة' });
+        if (!user) return res.status(400).json({ msg: 'البريد الإلكتروني غير صحيح' });
 
         // مطابقة الباسورد
         const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) return res.status(400).json({ msg: 'بيانات الدخول غير صحيحة' });
+        if (!isMatch) return res.status(400).json({ msg: 'كلمة الدخول غير صحيحة' });
 
         // توليد التوكن (JWT)
         const payload = { user: { id: user.id, role: user.role } };
