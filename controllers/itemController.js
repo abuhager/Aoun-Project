@@ -29,3 +29,26 @@ exports.createItem = async (req, res) => {
         res.status(500).send('خطأ في السيرفر أثناء إضافة الغرض');
     }
 };
+// دالة جلب كل التبرعات (مع دعم الفلاتر)
+exports.getItems = async (req, res) => {
+    try {
+        const { category } = req.query;
+        
+        // التعديل العبقري تبعك: جلب المتاح والمحجوز (عشان يقدروا يصفوا عالطابور)
+        // ومستحيل نجيب "تم التسليم" أو "مخفي"
+        let query = { status: { $in: ['متاح', 'محجوز'] } }; 
+
+        if (category) {
+            query.category = category;
+        }
+
+        const items = await Item.find(query)
+            .populate('donor', 'name')
+            .sort({ createdAt: -1 });
+
+        res.json(items);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('خطأ في السيرفر أثناء جلب الأغراض');
+    }
+};
