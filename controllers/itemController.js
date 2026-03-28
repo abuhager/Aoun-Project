@@ -142,3 +142,37 @@ exports.cancelBooking = async (req, res) => {
         res.status(500).send('خطأ في السيرفر أثناء إلغاء الحجز');
     }
 };
+// دالة تعديل بيانات الغرض
+exports.updateItem = async (req, res) => {
+    try {
+        let item = await Item.findById(req.params.id);
+
+        // 1. فحص هل الغرض موجود؟
+        if (!item) {
+            return res.status(404).json({ msg: 'الغرض غير موجود' });
+        }
+
+        // 2. فحص الأمان (حارس الملكية): هل المستخدم الحالي هو نفسه صاحب الغرض؟
+        if (item.donor.toString() !== req.user.id) {
+            return res.status(401).json({ msg: 'غير مصرح لك بتعديل هذا الغرض 🛑' });
+        }
+
+        // 3. استلام البيانات الجديدة من الطلب
+        const { title, description, category, imageUrl } = req.body;
+
+        // 4. تحديث الحقول (بنحدث بس الحقول اللي المستخدم بعتها)
+        if (title) item.title = title;
+        if (description) item.description = description;
+        if (category) item.category = category;
+        if (imageUrl) item.imageUrl = imageUrl;
+
+        // حفظ التعديلات في الداتا بيز
+        await item.save();
+
+        res.json({ msg: 'تم تعديل الغرض بنجاح ✏️', item });
+
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('خطأ في السيرفر أثناء تعديل الغرض');
+    }
+};
