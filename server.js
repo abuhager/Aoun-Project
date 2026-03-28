@@ -25,3 +25,4 @@ app.use('/api/items', require('./routes/items'));
 app.listen(PORT, () => {
   console.log(`Server is running on port: ${PORT}`);
 });
+//npx nodemon server.js

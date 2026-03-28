@@ -52,3 +52,46 @@ exports.getItems = async (req, res) => {
         res.status(500).send('خطأ في السيرفر أثناء جلب الأغراض');
     }
 };
+// دالة حجز غرض أو الانضمام للطابور
+exports.bookItem = async (req, res) => {
+    try {
+        const item = await Item.findById(req.params.id);
+
+        if (!item) {
+            return res.status(404).json({ msg: 'الغرض غير موجود' });
+        }
+
+        // 1. فحص: ممنوع تحجز غرض إنت اللي منزله (تبرعك الشخصي)
+        if (item.donor.toString() === req.user.id) {
+            return res.status(400).json({ msg: 'لا يمكنك حجز غرض قمت بتبرعه بنفسك' });
+        }
+
+        // 2. فحص: هل المستخدم أصلاً هو اللي حجز الغرض أو موجود بالطابور؟
+        const alreadyInWaitlist = item.waitlist.some(wait => wait.user.toString() === req.user.id);
+        const isBooker = item.bookedBy && item.bookedBy.toString() === req.user.id;
+
+        if (alreadyInWaitlist || isBooker) {
+            return res.status(400).json({ msg: 'أنت مسجل بالفعل في قائمة هذا الغرض' });
+        }
+
+        // 3. لوجيك الحجز:
+        if (item.status === 'متاح') {
+            // إذا متاح، بصير محجوز فوراً للشخص هاد
+            item.status = 'محجوز';
+            item.bookedBy = req.user.id;
+            await item.save();
+            return res.json({ msg: 'تم حجز الغرض بنجاح، تواصل مع المتبرع 🤝', item });
+        } else if (item.status === 'محجوز') {
+            // إذا محجوز، بنضيف الشخص للطابور (Waitlist)
+            item.waitlist.push({ user: req.user.id });
+            await item.save();
+            return res.json({ msg: 'الغرض محجوز حالياً، تم إضافتك لقائمة الانتظار 🕒', item });
+        } else {
+            return res.status(400).json({ msg: 'هذا الغرض غير متوفر للحجز حالياً' });
+        }
+
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('خطأ في السيرفر أثناء الحجز');
+    }
+};
