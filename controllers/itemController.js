@@ -3,22 +3,30 @@ const Item = require('../models/Item');
 // دالة إضافة غرض جديد (تبرع)
 exports.createItem = async (req, res) => {
     try {
-        // 1. استلام تفاصيل الغرض من الطلب (Postman أو Frontend)
-        const { title, description, category, imageUrl } = req.body;
+        // 1. استلام تفاصيل الغرض النصية من الطلب (من form-data)
+        // لاحظ: شلنا imageUrl من هون لأنها بتيجي كملف مش كنص
+        const { title, description, category } = req.body;
 
-        // 2. بناء الغرض الجديد
+        // 2. استخراج رابط الصورة السحابي (من العتّال Cloudinary)
+        let imageUrl = '';
+        if (req.file) {
+            // العتّال بيرفع الصورة وبحط رابطها السحابي الجاهز هون
+            imageUrl = req.file.path; 
+        }
+
+        // 3. بناء الغرض الجديد
         const newItem = new Item({
             title,
             description,
             category,
-            imageUrl, // حالياً رح نبعت رابط صورة عادي، لاحقاً بنربطه بـ Cloudinary
+            imageUrl, // هون بنخزن الرابط السحابي الحقيقي اللي إجانا من Cloudinary
             donor: req.user.id // 🪄 السحر هون! أخذنا الـ ID تبع المستخدم من الحارس ولزقناه بالغرض
         });
 
-        // 3. حفظ الغرض بالداتا بيز (Asynchronous زي ما اتفقنا)
+        // 4. حفظ الغرض بالداتا بيز (Asynchronous زي ما اتفقنا)
         const item = await newItem.save();
 
-        // 4. إرجاع النتيجة
+        // 5. إرجاع النتيجة
         res.status(201).json({
             msg: 'تم إضافة التبرع بنجاح 🎁',
             item

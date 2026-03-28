@@ -1,11 +1,12 @@
 const express = require('express');
 const router = express.Router();
+const upload = require('../middlewares/upload'); // استدعاء العتّال
 const auth = require('../middlewares/auth'); // 👮‍♂️ استدعينا الحارس
 const { createItem, getItems ,bookItem, cancelBooking , updateItem, deleteItem, completeDelivery} = require('../controllers/itemController'); // لا تنسى تضيف getItems بالاستدعاء فوق
 
-// مسار إضافة غرض: http://localhost:5000/api/items
-// لاحظ كيف حطينا (auth) بالنص! يعني الطلب بيمر عالحارس، إذا تمام بيكمل لـ createItem
-router.post('/', auth, createItem);
+// مسار إضافة غرض جديد (مع صورة)
+// استخدمنا upload.single('image') عشان نستقبل ملف واحد اسمه 'image'
+router.post('/', [auth, upload.single('image')], createItem);
 
 // مسار جلب الأغراض: http://localhost:5000/api/items
 // ملاحظة: هاد المسار خليناه بدون حارس (auth) عشان أي طالب يقدر يتصفح الموقع، بس ما بيقدر يطلب غرض إلا بس يسجل دخول
