@@ -95,3 +95,50 @@ exports.bookItem = async (req, res) => {
         res.status(500).send('خطأ في السيرفر أثناء الحجز');
     }
 };
+// دالة إلغاء الحجز أو الخروج من الطابور
+exports.cancelBooking = async (req, res) => {
+    try {
+        const item = await Item.findById(req.params.id);
+
+        if (!item) {
+            return res.status(404).json({ msg: 'الغرض غير موجود' });
+        }
+
+        const userId = req.user.id;
+
+        // السيناريو الأول: المستخدم هو الشخص اللي حاجز الغرض فعلياً
+        if (item.bookedBy && item.bookedBy.toString() === userId) {
+            // هل في حدا بيستنى بالطابور؟
+            if (item.waitlist.length > 0) {
+                // بنسحب أول شخص من الطابور (shift بتحذف أول عنصر من المصفوفة وبترجعه)
+                const nextUser = item.waitlist.shift(); 
+                item.bookedBy = nextUser.user; // مبروك للشخص الجديد!
+                // الحالة بتضل 'محجوز'
+            } else {
+                // ما في حدا بالطابور، الغرض بيرجع للرف
+                item.bookedBy = null;
+                item.status = 'متاح';
+            }
+            
+            await item.save();
+            return res.json({ msg: 'تم إلغاء حجزك بنجاح', item });
+        }
+
+        // السيناريو الثاني: المستخدم مش هو الحاجز الأساسي، بس موجود بالطابور
+        const inWaitlist = item.waitlist.some(wait => wait.user.toString() === userId);
+        
+        if (inWaitlist) {
+            // بنفلتر المصفوفة وبنشيل هاد المستخدم منها
+            item.waitlist = item.waitlist.filter(wait => wait.user.toString() !== userId);
+            await item.save();
+            return res.json({ msg: 'تم إزالتك من قائمة الانتظار بنجاح', item });
+        }
+
+        // السيناريو الثالث: المستخدم لا حاجز ولا بالطابور وبجرب يلغي!
+        return res.status(400).json({ msg: 'أنت لست مسجلاً في هذا الغرض لإلغائه' });
+
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('خطأ في السيرفر أثناء إلغاء الحجز');
+    }
+};
