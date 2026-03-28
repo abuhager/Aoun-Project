@@ -1,31 +1,15 @@
 const mongoose = require('mongoose');
 
-// 1. بناء القالب (Schema)
 const userSchema = new mongoose.Schema({
-    name: {
-        type: String,
-        required: true, // إجباري
-        trim: true      // بشيل أي مسافات بالخطأ قبل أو بعد الاسم
-    },
-    email: {
-        type: String,
-        required: true, // إجباري
-        unique: true,   // ممنوع يتكرر بالداتا بيز
-        trim: true
-    },
-    password: {
-        type: String,
-        required: true  // إجباري
-    },
-    role: {
-        type: String,
-        default: 'user', // أي شخص بيسجل رح يكون مستخدم عادي تلقائياً
-        enum: ['user', 'admin'] // حصر الصلاحيات يا مستخدم يا أدمن
-    }
-}, {
-    // 2. إعدادات إضافية للقالب
-    timestamps: true // هاي الإضافة بتخلي مونجو لحالها تسجل متى انعمل الحساب (createdAt) ومتى تعدل (updatedAt)
-});
+    name: { type: String, required: true, trim: true },
+    email: { type: String, required: true, unique: true, trim: true },
+    password: { type: String, required: true },
+    
+    // الإضافات الجديدة حسب خطتك:
+    role: { type: String, default: 'user', enum: ['user', 'admin', 'super_admin'] },
+    isVerifiedStudent: { type: Boolean, default: false }, // شارة الطالب الموثق
+    trustScore: { type: Number, default: 100 }, // نقاط الثقة تبدأ من 100
+    quota: { type: Number, default: 3 } // الحصة الأسبوعية (مثلاً 3 أغراض)
+}, { timestamps: true });
 
-// 3. تصدير القالب عشان نقدر نستخدمه جوا الكنترولر
 module.exports = mongoose.model('User', userSchema);
