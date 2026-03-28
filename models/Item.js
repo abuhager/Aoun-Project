@@ -7,6 +7,9 @@ const itemSchema = new mongoose.Schema({
     imageUrl: { type: String, default: '' },
     donor: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     bookedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    deliveryOtp: {
+    type: String
+  },
     
     waitlist: [{
         user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

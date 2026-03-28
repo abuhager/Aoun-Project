@@ -75,12 +75,21 @@ exports.bookItem = async (req, res) => {
         }
 
         // 3. لوجيك الحجز:
-        if (item.status === 'متاح') {
-            // إذا متاح، بصير محجوز فوراً للشخص هاد
+       if (item.status === 'متاح') {
+            // توليد كود سري من 4 أرقام (مثال: 4829)
+            const otp = Math.floor(1000 + Math.random() * 9000).toString();
+            
             item.status = 'محجوز';
             item.bookedBy = req.user.id;
+            item.deliveryOtp = otp; // خزن الكود بالداتا بيز
+            
             await item.save();
-            return res.json({ msg: 'تم حجز الغرض بنجاح، تواصل مع المتبرع 🤝', item });
+            
+            // بنرجع الكود للطالب في الرسالة عشان يشوفه
+            return res.json({ 
+                msg: `تم حجز الغرض بنجاح! رمز الاستلام الخاص بك هو: ${otp} 🔐 (أعطه للمتبرع عند المقابلة)`, 
+                item 
+            });
         } else if (item.status === 'محجوز') {
             // إذا محجوز، بنضيف الشخص للطابور (Waitlist)
             item.waitlist.push({ user: req.user.id });
@@ -198,5 +207,51 @@ exports.deleteItem = async (req, res) => {
     } catch (err) {
         console.error(err.message);
         res.status(500).send('خطأ في السيرفر أثناء حذف الغرض');
+    }
+};
+// دالة إتمام تسليم الغرض للطالب (مع نظام OTP)
+// دالة إتمام تسليم الغرض للطالب (النسخة الاحترافية مع OTP ورسائل ذكية)
+exports.completeDelivery = async (req, res) => {
+    try {
+        // حماية السيرفر من الكراش إذا ما تم إرسال Body
+        const { otp } = req.body || {}; 
+        
+        const item = await Item.findById(req.params.id);
+
+        if (!item) {
+            return res.status(404).json({ msg: 'الغرض غير موجود' });
+        }
+
+        // 1. فحص الأمان: لازم المتبرع نفسه هو اللي يأكد التسليم
+        if (item.donor.toString() !== req.user.id) {
+            return res.status(401).json({ msg: 'غير مصرح لك بتأكيد تسليم هذا الغرض 🛑' });
+        }
+
+        // 2. رسائل ذكية حسب حالة الغرض (UX احترافي)
+        if (item.status === 'تم التسليم') {
+            return res.status(400).json({ msg: 'هذا الغرض تم تسليمه بالفعل مسبقاً! ✅' });
+        }
+
+        if (item.status === 'متاح') {
+            return res.status(400).json({ msg: 'هذا الغرض متاح ولم يتم حجزه بعد لتسليمه! 🛑' });
+        }
+
+        // 3. التحديث الأمني: فحص الـ OTP (لأننا تأكدنا فوق إنو الحالة "محجوز")
+        if (!otp || item.deliveryOtp !== otp) {
+            return res.status(400).json({ msg: 'رمز التسليم (OTP) غير صحيح أو مفقود! ❌' });
+        }
+
+        // 4. إتمام العملية بنجاح
+        item.status = 'تم التسليم';
+        item.waitlist = []; // تفريغ الطابور لأن الغرض راح لصاحب النصيب
+        item.deliveryOtp = undefined; // مسح الكود من الداتا بيز للأمان
+
+        await item.save();
+
+        res.json({ msg: 'تم تسليم الغرض بنجاح، في ميزان حسناتك! 💚', item });
+
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('خطأ في السيرفر أثناء إتمام التسليم');
     }
 };

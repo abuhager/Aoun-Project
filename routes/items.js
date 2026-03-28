@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const auth = require('../middlewares/auth'); // 👮‍♂️ استدعينا الحارس
-const { createItem, getItems ,bookItem, cancelBooking , updateItem, deleteItem} = require('../controllers/itemController'); // لا تنسى تضيف getItems بالاستدعاء فوق
+const { createItem, getItems ,bookItem, cancelBooking , updateItem, deleteItem, completeDelivery} = require('../controllers/itemController'); // لا تنسى تضيف getItems بالاستدعاء فوق
 
 // مسار إضافة غرض: http://localhost:5000/api/items
 // لاحظ كيف حطينا (auth) بالنص! يعني الطلب بيمر عالحارس، إذا تمام بيكمل لـ createItem
@@ -16,10 +16,13 @@ router.put('/book/:id', auth, bookItem);
 // مسار إلغاء الحجز: http://localhost:5000/api/items/cancel/:id
 router.put('/cancel/:id', auth, cancelBooking);
 
-// مسار تعديل الغرض: http://localhost:5000/api/items/:id
-router.put('/:id', auth, updateItem);
+// مسار تعديل الغرض: http://localhost:5000/api/items/update/:id
+router.put('/update/:id', auth, updateItem);
 
-// مسار حذف الغرض: http://localhost:5000/api/items/:id
-router.delete('/:id', auth, deleteItem);
+// مسار حذف الغرض: http://localhost:5000/api/items/delete/:id
+router.delete('/delete/:id', auth, deleteItem);
+
+// مسار إتمام التسليم: http://localhost:5000/api/items/deliver/:id
+router.put('/deliver/:id', auth, completeDelivery);
 
 module.exports = router;
