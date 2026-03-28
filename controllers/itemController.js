@@ -176,3 +176,27 @@ exports.updateItem = async (req, res) => {
         res.status(500).send('خطأ في السيرفر أثناء تعديل الغرض');
     }
 };
+// دالة حذف الغرض
+exports.deleteItem = async (req, res) => {
+    try {
+        const item = await Item.findById(req.params.id);
+
+        if (!item) {
+            return res.status(404).json({ msg: 'الغرض غير موجود' });
+        }
+
+        // فحص الأمان: هل المستخدم الحالي هو صاحب الغرض؟
+        if (item.donor.toString() !== req.user.id) {
+            return res.status(401).json({ msg: 'غير مصرح لك بحذف هذا الغرض 🛑' });
+        }
+
+        // الحذف الفعلي من قاعدة البيانات
+        await item.deleteOne();
+
+        res.json({ msg: 'تم حذف الغرض بنجاح 🗑️' });
+
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('خطأ في السيرفر أثناء حذف الغرض');
+    }
+};
