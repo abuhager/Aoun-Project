@@ -127,14 +127,22 @@ exports.cancelBooking = async (req, res) => {
         if (item.bookedBy && item.bookedBy.toString() === userId) {
             // هل في حدا بيستنى بالطابور؟
             if (item.waitlist.length > 0) {
-                // بنسحب أول شخص من الطابور (shift بتحذف أول عنصر من المصفوفة وبترجعه)
+                // بنسحب أول شخص من الطابور
                 const nextUser = item.waitlist.shift(); 
                 item.bookedBy = nextUser.user; // مبروك للشخص الجديد!
-                // الحالة بتضل 'محجوز'
+                
+                // 🟢 التعديل الأمني: توليد OTP جديد كلياً للشخص الجديد
+                const newOtp = Math.floor(1000 + Math.random() * 9000).toString();
+                item.deliveryOtp = newOtp;
+                
+                // (الحالة بتضل 'محجوز')
             } else {
                 // ما في حدا بالطابور، الغرض بيرجع للرف
                 item.bookedBy = null;
                 item.status = 'متاح';
+                
+                // 🟢 التعديل الأمني: حرق الـ OTP لأنه بطل في حدا حاجز الغرض
+                item.deliveryOtp = undefined; 
             }
             
             await item.save();
