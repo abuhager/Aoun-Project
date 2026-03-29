@@ -113,6 +113,9 @@ exports.bookItem = async (req, res) => {
     }
 };
 // دالة إلغاء الحجز أو الخروج من الطابور
+const sendEmail = require('../utils/sendEmail'); // تأكد من مسار الاستدعاء
+const User = require('../models/User'); // رح نحتاجه عشان نجيب إيميل الشخص المحظوظ
+
 exports.cancelBooking = async (req, res) => {
     try {
         const item = await Item.findById(req.params.id);
@@ -124,8 +127,8 @@ exports.cancelBooking = async (req, res) => {
         const userId = req.user.id;
 
         // السيناريو الأول: المستخدم هو الشخص اللي حاجز الغرض فعلياً
-        // السيناريو الأول: المستخدم هو الشخص اللي حاجز الغرض فعلياً
         if (item.bookedBy && item.bookedBy.toString() === userId) {
+            
             // هل في حدا بيستنى بالطابور؟
             if (item.waitlist.length > 0) {
                 // بنسحب أول شخص من الطابور
@@ -135,6 +138,29 @@ exports.cancelBooking = async (req, res) => {
                 // 🟢 التعديل الأمني: توليد OTP جديد كلياً للشخص الجديد
                 const newOtp = Math.floor(1000 + Math.random() * 9000).toString();
                 item.deliveryOtp = newOtp;
+                
+                // 🟢 إحضار بيانات الشخص الجديد عشان نبعتله إيميل
+                const luckyUser = await User.findById(nextUser.user);
+                
+                if (luckyUser) {
+                    const message = `
+                        <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; direction: rtl;">
+                            <h2 style="color: #006155;">أخبار حلوة يا ${luckyUser.name}! 🎉</h2>
+                            <p style="font-size: 16px; color: #333;">الغرض اللي كنت تستناه في منصة عون صار متاح وتم حجزه إلك أوتوماتيكياً.</p>
+                            <div style="background-color: #f3f4f5; padding: 20px; border-radius: 10px; display: inline-block; margin: 20px 0;">
+                                <p style="margin: 0; color: #555;">كود الاستلام الخاص بك هو:</p>
+                                <h1 style="color: #087c6e; font-size: 40px; margin: 10px 0; letter-spacing: 10px;">${newOtp}</h1>
+                            </div>
+                            <p style="font-size: 14px; color: #777;">تواصل مع صاحب الغرض لاستلامه، ولا تنسى تعطيه الكود.</p>
+                        </div>
+                    `;
+                    
+                    await sendEmail({
+                        email: luckyUser.email,
+                        subject: 'دورك وصل! الغرض متاح لك الآن 🎁',
+                        message: message
+                    });
+                }
                 
                 // (الحالة بتضل 'محجوز')
             } else {
