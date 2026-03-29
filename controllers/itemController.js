@@ -1,57 +1,18 @@
 const Item = require('../models/Item');
+const User = require('../models/User');
+const sendEmail = require('../utils/sendEmail');
 
-// دالة إضافة غرض جديد (تبرع)
-exports.createItem = async (req, res) => {
-    try {
-        // 1. استلام تفاصيل الغرض النصية من الطلب (من form-data)
-        // لاحظ: شلنا imageUrl من هون لأنها بتيجي كملف مش كنص
-        const { title, description, category } = req.body;
-
-        // 2. استخراج رابط الصورة السحابي (من العتّال Cloudinary)
-        let imageUrl = '';
-        if (req.file) {
-            // العتّال بيرفع الصورة وبحط رابطها السحابي الجاهز هون
-            imageUrl = req.file.path; 
-        }
-
-        // 3. بناء الغرض الجديد
-        const newItem = new Item({
-            title,
-            description,
-            category,
-            imageUrl, // هون بنخزن الرابط السحابي الحقيقي اللي إجانا من Cloudinary
-            donor: req.user.id // 🪄 السحر هون! أخذنا الـ ID تبع المستخدم من الحارس ولزقناه بالغرض
-        });
-
-        // 4. حفظ الغرض بالداتا بيز (Asynchronous زي ما اتفقنا)
-        const item = await newItem.save();
-
-        // 5. إرجاع النتيجة
-        res.status(201).json({
-            msg: 'تم إضافة التبرع بنجاح 🎁',
-            item
-        });
-
-    } catch (err) {
-        console.error(err.message);
-        res.status(500).send('خطأ في السيرفر أثناء إضافة الغرض');
-    }
-};
-// دالة جلب كل التبرعات (مع دعم الفلاتر)
+// 1. جلب كل التبرعات (مع دعم الفلاتر)
 exports.getItems = async (req, res) => {
     try {
-        const { category } = req.query;
-        
-        // التعديل العبقري تبعك: جلب المتاح والمحجوز (عشان يقدروا يصفوا عالطابور)
-        // ومستحيل نجيب "تم التسليم" أو "مخفي"
+        const { category, location } = req.query;
         let query = { status: { $in: ['متاح', 'محجوز'] } }; 
 
-        if (category) {
-            query.category = category;
-        }
+        if (category) query.category = category;
+        if (location) query.location = location;
 
         const items = await Item.find(query)
-            .populate('donor', 'name')
+            .populate('donor', 'name trustScore') // جلب بيانات المتبرع
             .sort({ createdAt: -1 });
 
         res.json(items);
@@ -60,21 +21,65 @@ exports.getItems = async (req, res) => {
         res.status(500).send('خطأ في السيرفر أثناء جلب الأغراض');
     }
 };
-// دالة حجز غرض أو الانضمام للطابور
+
+// 2. 🟢 (الجديدة) جلب غرض واحد بناءً على الـ ID
+exports.getItemById = async (req, res) => {
+    try {
+        const item = await Item.findById(req.params.id)
+            .populate('donor', 'name trustScore avatar location isVerified'); // جلب بيانات كاملة للمتبرع
+
+        if (!item) {
+            return res.status(404).json({ msg: 'هذا الغرض غير موجود' });
+        }
+        res.json(item);
+    } catch (err) {
+        console.error(err.message);
+        if (err.kind === 'ObjectId') return res.status(404).json({ msg: 'تنسيق الـ ID غير صحيح' });
+        res.status(500).send('خطأ في السيرفر');
+    }
+};
+
+// 3. إضافة غرض جديد (تبرع)
+exports.createItem = async (req, res) => {
+    try {
+        // أضفنا الحقول الجديدة (location, condition, specs) لتطابق الفرونت إند
+        const { title, description, category, location, condition, specs } = req.body;
+
+        let imageUrl = '';
+        if (req.file) {
+            imageUrl = req.file.path; 
+        }
+
+        const newItem = new Item({
+            title,
+            description,
+            category,
+            location,
+            condition,
+            specs,
+            imageUrl,
+            donor: req.user.id 
+        });
+
+        const item = await newItem.save();
+        res.status(201).json({ msg: 'تم إضافة التبرع بنجاح 🎁', item });
+
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('خطأ في السيرفر أثناء إضافة الغرض');
+    }
+};
+
+// 4. حجز غرض أو الانضمام للطابور
 exports.bookItem = async (req, res) => {
     try {
         const item = await Item.findById(req.params.id);
+        if (!item) return res.status(404).json({ msg: 'الغرض غير موجود' });
 
-        if (!item) {
-            return res.status(404).json({ msg: 'الغرض غير موجود' });
-        }
-
-        // 1. فحص: ممنوع تحجز غرض إنت اللي منزله (تبرعك الشخصي)
         if (item.donor.toString() === req.user.id) {
             return res.status(400).json({ msg: 'لا يمكنك حجز غرض قمت بتبرعه بنفسك' });
         }
 
-        // 2. فحص: هل المستخدم أصلاً هو اللي حجز الغرض أو موجود بالطابور؟
         const alreadyInWaitlist = item.waitlist.some(wait => wait.user.toString() === req.user.id);
         const isBooker = item.bookedBy && item.bookedBy.toString() === req.user.id;
 
@@ -82,219 +87,121 @@ exports.bookItem = async (req, res) => {
             return res.status(400).json({ msg: 'أنت مسجل بالفعل في قائمة هذا الغرض' });
         }
 
-        // 3. لوجيك الحجز:
-       if (item.status === 'متاح') {
-            // توليد كود سري من 4 أرقام (مثال: 4829)
+        if (item.status === 'متاح') {
             const otp = Math.floor(1000 + Math.random() * 9000).toString();
-            
             item.status = 'محجوز';
             item.bookedBy = req.user.id;
-            item.deliveryOtp = otp; // خزن الكود بالداتا بيز
-            
+            item.deliveryOtp = otp; 
             await item.save();
             
-            // بنرجع الكود للطالب في الرسالة عشان يشوفه
             return res.json({ 
-                msg: `تم حجز الغرض بنجاح! رمز الاستلام الخاص بك هو: ${otp} 🔐 (أعطه للمتبرع عند المقابلة)`, 
+                msg: `تم حجز الغرض بنجاح! رمز الاستلام هو: ${otp} 🔐`, 
                 item 
             });
-        } else if (item.status === 'محجوز') {
-            // إذا محجوز، بنضيف الشخص للطابور (Waitlist)
+        } else {
             item.waitlist.push({ user: req.user.id });
             await item.save();
             return res.json({ msg: 'الغرض محجوز حالياً، تم إضافتك لقائمة الانتظار 🕒', item });
-        } else {
-            return res.status(400).json({ msg: 'هذا الغرض غير متوفر للحجز حالياً' });
         }
-
     } catch (err) {
         console.error(err.message);
         res.status(500).send('خطأ في السيرفر أثناء الحجز');
     }
 };
-// دالة إلغاء الحجز أو الخروج من الطابور
-const sendEmail = require('../utils/sendEmail'); // تأكد من مسار الاستدعاء
-const User = require('../models/User'); // رح نحتاجه عشان نجيب إيميل الشخص المحظوظ
 
+// 5. إلغاء الحجز
 exports.cancelBooking = async (req, res) => {
     try {
         const item = await Item.findById(req.params.id);
-
-        if (!item) {
-            return res.status(404).json({ msg: 'الغرض غير موجود' });
-        }
+        if (!item) return res.status(404).json({ msg: 'الغرض غير موجود' });
 
         const userId = req.user.id;
 
-        // السيناريو الأول: المستخدم هو الشخص اللي حاجز الغرض فعلياً
         if (item.bookedBy && item.bookedBy.toString() === userId) {
-            
-            // هل في حدا بيستنى بالطابور؟
             if (item.waitlist.length > 0) {
-                // بنسحب أول شخص من الطابور
                 const nextUser = item.waitlist.shift(); 
-                item.bookedBy = nextUser.user; // مبروك للشخص الجديد!
-                
-                // 🟢 التعديل الأمني: توليد OTP جديد كلياً للشخص الجديد
                 const newOtp = Math.floor(1000 + Math.random() * 9000).toString();
+                
+                item.bookedBy = nextUser.user;
                 item.deliveryOtp = newOtp;
                 
-                // 🟢 إحضار بيانات الشخص الجديد عشان نبعتله إيميل
                 const luckyUser = await User.findById(nextUser.user);
-                
                 if (luckyUser) {
-                    const message = `
-                        <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; direction: rtl;">
-                            <h2 style="color: #006155;">أخبار حلوة يا ${luckyUser.name}! 🎉</h2>
-                            <p style="font-size: 16px; color: #333;">الغرض اللي كنت تستناه في منصة عون صار متاح وتم حجزه إلك أوتوماتيكياً.</p>
-                            <div style="background-color: #f3f4f5; padding: 20px; border-radius: 10px; display: inline-block; margin: 20px 0;">
-                                <p style="margin: 0; color: #555;">كود الاستلام الخاص بك هو:</p>
-                                <h1 style="color: #087c6e; font-size: 40px; margin: 10px 0; letter-spacing: 10px;">${newOtp}</h1>
-                            </div>
-                            <p style="font-size: 14px; color: #777;">تواصل مع صاحب الغرض لاستلامه، ولا تنسى تعطيه الكود.</p>
-                        </div>
-                    `;
-                    
-                    await sendEmail({
-                        email: luckyUser.email,
-                        subject: 'دورك وصل! الغرض متاح لك الآن 🎁',
-                        message: message
-                    });
+                    const message = `<h2>دورك وصل يا ${luckyUser.name}! 🎉</h2><p>كود الاستلام: <b>${newOtp}</b></p>`;
+                    await sendEmail({ email: luckyUser.email, subject: 'الغرض متاح لك الآن 🎁', message });
                 }
-                
-                // (الحالة بتضل 'محجوز')
             } else {
-                // ما في حدا بالطابور، الغرض بيرجع للرف
                 item.bookedBy = null;
                 item.status = 'متاح';
-                
-                // 🟢 التعديل الأمني: حرق الـ OTP لأنه بطل في حدا حاجز الغرض
                 item.deliveryOtp = undefined; 
             }
-            
             await item.save();
             return res.json({ msg: 'تم إلغاء حجزك بنجاح', item });
         }
 
-        // السيناريو الثاني: المستخدم مش هو الحاجز الأساسي، بس موجود بالطابور
+        // إزالة من الطابور
         const inWaitlist = item.waitlist.some(wait => wait.user.toString() === userId);
-        
         if (inWaitlist) {
-            // بنفلتر المصفوفة وبنشيل هاد المستخدم منها
             item.waitlist = item.waitlist.filter(wait => wait.user.toString() !== userId);
             await item.save();
-            return res.json({ msg: 'تم إزالتك من قائمة الانتظار بنجاح', item });
+            return res.json({ msg: 'تم إزالتك من قائمة الانتظار', item });
         }
 
-        // السيناريو الثالث: المستخدم لا حاجز ولا بالطابور وبجرب يلغي!
-        return res.status(400).json({ msg: 'أنت لست مسجلاً في هذا الغرض لإلغائه' });
-
+        return res.status(400).json({ msg: 'أنت لست مسجلاً في هذا الغرض' });
     } catch (err) {
         console.error(err.message);
-        res.status(500).send('خطأ في السيرفر أثناء إلغاء الحجز');
+        res.status(500).send('خطأ في السيرفر');
     }
 };
-// دالة تعديل بيانات الغرض
+
+// 6. تعديل وحذف وإتمام التسليم
 exports.updateItem = async (req, res) => {
     try {
         let item = await Item.findById(req.params.id);
+        if (!item) return res.status(404).json({ msg: 'الغرض غير موجود' });
+        if (item.donor.toString() !== req.user.id) return res.status(401).json({ msg: 'غير مصرح لك' });
 
-        // 1. فحص هل الغرض موجود؟
-        if (!item) {
-            return res.status(404).json({ msg: 'الغرض غير موجود' });
-        }
-
-        // 2. فحص الأمان (حارس الملكية): هل المستخدم الحالي هو نفسه صاحب الغرض؟
-        if (item.donor.toString() !== req.user.id) {
-            return res.status(401).json({ msg: 'غير مصرح لك بتعديل هذا الغرض 🛑' });
-        }
-
-        // 3. استلام البيانات الجديدة من الطلب
-        const { title, description, category, imageUrl } = req.body;
-
-        // 4. تحديث الحقول (بنحدث بس الحقول اللي المستخدم بعتها)
+        const { title, description, category, location, condition, specs } = req.body;
         if (title) item.title = title;
         if (description) item.description = description;
         if (category) item.category = category;
-        if (imageUrl) item.imageUrl = imageUrl;
+        if (location) item.location = location;
+        if (condition) item.condition = condition;
+        if (specs) item.specs = typeof specs === 'string' ? JSON.parse(specs) : specs;
 
-        // حفظ التعديلات في الداتا بيز
         await item.save();
-
-        res.json({ msg: 'تم تعديل الغرض بنجاح ✏️', item });
-
+        res.json({ msg: 'تم التعديل بنجاح ✏️', item });
     } catch (err) {
-        console.error(err.message);
-        res.status(500).send('خطأ في السيرفر أثناء تعديل الغرض');
+        res.status(500).send('خطأ في السيرفر');
     }
 };
-// دالة حذف الغرض
+
 exports.deleteItem = async (req, res) => {
     try {
         const item = await Item.findById(req.params.id);
-
-        if (!item) {
-            return res.status(404).json({ msg: 'الغرض غير موجود' });
-        }
-
-        // فحص الأمان: هل المستخدم الحالي هو صاحب الغرض؟
-        if (item.donor.toString() !== req.user.id) {
-            return res.status(401).json({ msg: 'غير مصرح لك بحذف هذا الغرض 🛑' });
-        }
-
-        // الحذف الفعلي من قاعدة البيانات
+        if (!item || item.donor.toString() !== req.user.id) return res.status(401).json({ msg: 'فشل الحذف' });
         await item.deleteOne();
-
-        res.json({ msg: 'تم حذف الغرض بنجاح 🗑️' });
-
+        res.json({ msg: 'تم الحذف 🗑️' });
     } catch (err) {
-        console.error(err.message);
-        res.status(500).send('خطأ في السيرفر أثناء حذف الغرض');
+        res.status(500).send('خطأ في السيرفر');
     }
 };
-// دالة إتمام تسليم الغرض للطالب (مع نظام OTP)
-// دالة إتمام تسليم الغرض للطالب (النسخة الاحترافية مع OTP ورسائل ذكية)
+
 exports.completeDelivery = async (req, res) => {
     try {
-        // حماية السيرفر من الكراش إذا ما تم إرسال Body
         const { otp } = req.body || {}; 
-        
         const item = await Item.findById(req.params.id);
+        if (!item || item.donor.toString() !== req.user.id) return res.status(401).json({ msg: 'غير مصرح لك' });
 
-        if (!item) {
-            return res.status(404).json({ msg: 'الغرض غير موجود' });
-        }
+        if (item.deliveryOtp !== otp) return res.status(400).json({ msg: 'الرمز غير صحيح ❌' });
 
-        // 1. فحص الأمان: لازم المتبرع نفسه هو اللي يأكد التسليم
-        if (item.donor.toString() !== req.user.id) {
-            return res.status(401).json({ msg: 'غير مصرح لك بتأكيد تسليم هذا الغرض 🛑' });
-        }
-
-        // 2. رسائل ذكية حسب حالة الغرض (UX احترافي)
-        if (item.status === 'تم التسليم') {
-            return res.status(400).json({ msg: 'هذا الغرض تم تسليمه بالفعل مسبقاً! ✅' });
-        }
-
-        if (item.status === 'متاح') {
-            return res.status(400).json({ msg: 'هذا الغرض متاح ولم يتم حجزه بعد لتسليمه! 🛑' });
-        }
-
-        // 3. التحديث الأمني: فحص الـ OTP (لأننا تأكدنا فوق إنو الحالة "محجوز")
-        if (!otp || item.deliveryOtp !== otp) {
-            return res.status(400).json({ msg: 'رمز التسليم (OTP) غير صحيح أو مفقود! ❌' });
-        }
-
-        // 4. إتمام العملية بنجاح
         item.status = 'تم التسليم';
-        item.waitlist = []; // تفريغ الطابور لأن الغرض راح لصاحب النصيب
-        item.deliveryOtp = undefined; // مسح الكود من الداتا بيز للأمان
-
+        item.waitlist = [];
+        item.deliveryOtp = undefined;
         await item.save();
 
-        res.json({ msg: 'تم تسليم الغرض بنجاح، في ميزان حسناتك! 💚', item });
-
+        res.json({ msg: 'تم تسليم الغرض بنجاح! 💚', item });
     } catch (err) {
-        console.error(err.message);
-        res.status(500).send('خطأ في السيرفر أثناء إتمام التسليم');
+        res.status(500).send('خطأ في السيرفر');
     }
 };

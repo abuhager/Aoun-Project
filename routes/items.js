@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const upload = require('../middlewares/upload'); // استدعاء العتّال
 const auth = require('../middlewares/auth'); // 👮‍♂️ استدعينا الحارس
-const { createItem, getItems ,bookItem, cancelBooking , updateItem, deleteItem, completeDelivery} = require('../controllers/itemController'); // لا تنسى تضيف getItems بالاستدعاء فوق
+const { createItem, getItems ,bookItem, cancelBooking , updateItem, deleteItem, completeDelivery,getItemById} = require('../controllers/itemController'); // لا تنسى تضيف getItems بالاستدعاء فوق
 
 // مسار إضافة غرض جديد (مع صورة)
 // استخدمنا upload.single('image') عشان نستقبل ملف واحد اسمه 'image'
@@ -11,7 +11,9 @@ router.post('/', [auth, upload.single('image')], createItem);
 // مسار جلب الأغراض: http://localhost:5000/api/items
 // ملاحظة: هاد المسار خليناه بدون حارس (auth) عشان أي طالب يقدر يتصفح الموقع، بس ما بيقدر يطلب غرض إلا بس يسجل دخول
 router.get('/', getItems);
+router.get('/:id', getItemById);
 // مسار الحجز: http://localhost:5000/api/items/book/:id
+
 router.put('/book/:id', auth, bookItem);
 
 // مسار إلغاء الحجز: http://localhost:5000/api/items/cancel/:id
