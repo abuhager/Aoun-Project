@@ -25,13 +25,18 @@ exports.getItems = async (req, res) => {
 // 2. جلب أغراضي الشخصية (للـ Dashboard)
 exports.getMyItems = async (req, res) => {
     try {
-        // جلب بيانات اليوزر صاحب التوكن
-        const user = await User.findById(req.user.id).select('name email');
+        const user = await User.findById(req.user.id).select('name email trustScore');
         
-        const myDonations = await Item.find({ donor: req.user.id }).sort({ createdAt: -1 });
-        const myRequests = await Item.find({ bookedBy: req.user.id }).sort({ createdAt: -1 });
+        // 🟢 هون التعديل: ضفنا populate لـ bookedBy عشان نجيب بيانات المستلم
+        const myDonations = await Item.find({ donor: req.user.id })
+            .populate('bookedBy', 'name avatar trustScore email') 
+            .sort({ createdAt: -1 });
 
-        // نبعت اليوزر مع المصفوفات
+        // 🟢 وضفنا populate لـ donor عشان المستلم يشوف بروفايل المتبرع
+        const myRequests = await Item.find({ bookedBy: req.user.id })
+            .populate('donor', 'name avatar trustScore email')
+            .sort({ createdAt: -1 });
+
         res.json({ user, myDonations, myRequests });
     } catch (err) {
         res.status(500).send('خطأ في السيرفر');
@@ -175,7 +180,7 @@ exports.completeDelivery = async (req, res) => {
             return res.status(400).json({ msg: 'هذا الغرض ليس محجوزاً لتتم عملية تسليمه' });
         }
 
-        // 3. مقارنة الـ OTP (مع تنظيف المسافات وتحويلها لنص لضمان التطابق 100%)
+        // 3. مقارنة الـ OTP
         const savedOtp = String(item.deliveryOtp).trim();
         const enteredOtp = String(otp).trim();
 
@@ -183,18 +188,25 @@ exports.completeDelivery = async (req, res) => {
             return res.status(400).json({ msg: 'الرمز الذي أدخلته غير صحيح ❌' });
         }
 
-        // 4. إذا الرمز صح، بنغير الحالة وبنحذف الـ OTP
+        // 4. التعديل الجوهري: 
+        // بنغير الحالة لـ "تم التسليم" وبنحذف الـ OTP فقط
+        // **مهم جداً**: ما بنلمس الـ bookedBy عشان يضل مسجل مين اللي استلم القطعة
         item.status = 'تم التسليم';
-        item.deliveryOtp = undefined;
+        item.deliveryOtp = undefined; 
+        
         await item.save();
 
-        res.json({ msg: 'تم تسليم الغرض بنجاح! شكراً لعطائك 💚', item });
+        // 5. نرجع البيانات كاملة عشان الفرونت إند يحدّث الواجهة فوراً
+        res.json({ 
+            msg: 'تم تسليم الغرض بنجاح! شكراً لعطائك 💚', 
+            item 
+        });
+        
     } catch (err) {
         console.error(err.message);
         res.status(500).send('خطأ في السيرفر أثناء تأكيد التسليم');
     }
 };
-
 // 8. تعديل الغرض
 exports.updateItem = async (req, res) => {
     try {

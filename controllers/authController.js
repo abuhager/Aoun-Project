@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const Item = require('../models/Item');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const sendEmail = require('../utils/sendEmail'); // تأكد من المسار حسب ملفاتك
@@ -183,26 +184,34 @@ exports.login = async (req, res) => {
 };
 exports.getUserProfile = async (req, res) => {
     try {
-        // 1. نجيب بيانات اليوزر بدون الباسوورد
         const user = await User.findById(req.params.id).select('-password -__v');
         if (!user) return res.status(404).json({ msg: 'المستخدم غير موجود' });
 
-        // 2. نجيب إحصائياته (كم غرض تبرع فيه)
-        const donationsCount = await Item.countDocuments({ donor: req.params.id });
-        
-        // 3. نجيب الأغراض اللي لسا "متاحة" بحسابه عشان الناس تشوفها
-        const activeDonations = await Item.find({ donor: req.params.id, status: 'متاح' })
-            .select('title imageUrl category location condition createdAt')
+        // 1. كل التبرعات اللي قدمها هاد الشخص (متاح + محجوز + تم التسليم)
+        const allDonations = await Item.find({ donor: req.params.id })
             .sort({ createdAt: -1 });
+
+        // 2. كل الطلبات اللي هو استلمها فعلياً (عشان نبين إنه مستخدم فعال)
+        const completedRequests = await Item.find({ 
+            bookedBy: req.params.id, 
+            status: 'تم التسليم' 
+        }).sort({ createdAt: -1 });
+
+        // 3. إحصائيات سريعة
+        const stats = {
+            donationsCount: allDonations.length,
+            completedDonations: allDonations.filter(i => i.status === 'تم التسليم').length,
+            receivedCount: completedRequests.length
+        };
 
         res.json({
             user,
-            stats: { donationsCount },
-            activeDonations
+            stats,
+            allDonations,
+            completedRequests
         });
     } catch (err) {
         console.error(err);
-        if (err.kind === 'ObjectId') return res.status(404).json({ msg: 'المستخدم غير موجود' });
         res.status(500).send('خطأ في السيرفر');
     }
 };
