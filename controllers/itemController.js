@@ -2,7 +2,7 @@ const Item = require('../models/Item');
 const User = require('../models/User');
 const sendEmail = require('../utils/sendEmail');
 
-// 1. جلب كل التبرعات (مع دعم الفلاتر)
+// 1. جلب كل التبرعات (لصفحة Browse)
 exports.getItems = async (req, res) => {
     try {
         const { category, location } = req.query;
@@ -12,7 +12,7 @@ exports.getItems = async (req, res) => {
         if (location) query.location = location;
 
         const items = await Item.find(query)
-            .populate('donor', 'name trustScore') // جلب بيانات المتبرع
+            .populate('donor', 'name trustScore avatar') 
             .sort({ createdAt: -1 });
 
         res.json(items);
@@ -22,27 +22,41 @@ exports.getItems = async (req, res) => {
     }
 };
 
-// 2. 🟢 (الجديدة) جلب غرض واحد بناءً على الـ ID
+// 2. جلب أغراضي الشخصية (للـ Dashboard)
+exports.getMyItems = async (req, res) => {
+    try {
+        // جلب بيانات اليوزر صاحب التوكن
+        const user = await User.findById(req.user.id).select('name email');
+        
+        const myDonations = await Item.find({ donor: req.user.id }).sort({ createdAt: -1 });
+        const myRequests = await Item.find({ bookedBy: req.user.id }).sort({ createdAt: -1 });
+
+        // نبعت اليوزر مع المصفوفات
+        res.json({ user, myDonations, myRequests });
+    } catch (err) {
+        res.status(500).send('خطأ في السيرفر');
+    }
+};
+
+// 3. جلب غرض واحد بالتفصيل
 exports.getItemById = async (req, res) => {
     try {
         const item = await Item.findById(req.params.id)
-            .populate('donor', 'name trustScore avatar location isVerified'); // جلب بيانات كاملة للمتبرع
+            .populate('donor', 'name trustScore avatar location isVerified');
 
         if (!item) {
             return res.status(404).json({ msg: 'هذا الغرض غير موجود' });
         }
         res.json(item);
     } catch (err) {
-        console.error(err.message);
         if (err.kind === 'ObjectId') return res.status(404).json({ msg: 'تنسيق الـ ID غير صحيح' });
         res.status(500).send('خطأ في السيرفر');
     }
 };
 
-// 3. إضافة غرض جديد (تبرع)
+// 4. إضافة غرض جديد
 exports.createItem = async (req, res) => {
     try {
-        // أضفنا الحقول الجديدة (location, condition, specs) لتطابق الفرونت إند
         const { title, description, category, location, condition, specs } = req.body;
 
         let imageUrl = '';
@@ -56,7 +70,7 @@ exports.createItem = async (req, res) => {
             category,
             location,
             condition,
-            specs,
+            specs, 
             imageUrl,
             donor: req.user.id 
         });
@@ -70,7 +84,7 @@ exports.createItem = async (req, res) => {
     }
 };
 
-// 4. حجز غرض أو الانضمام للطابور
+// 5. حجز غرض (Booking)
 exports.bookItem = async (req, res) => {
     try {
         const item = await Item.findById(req.params.id);
@@ -78,13 +92,6 @@ exports.bookItem = async (req, res) => {
 
         if (item.donor.toString() === req.user.id) {
             return res.status(400).json({ msg: 'لا يمكنك حجز غرض قمت بتبرعه بنفسك' });
-        }
-
-        const alreadyInWaitlist = item.waitlist.some(wait => wait.user.toString() === req.user.id);
-        const isBooker = item.bookedBy && item.bookedBy.toString() === req.user.id;
-
-        if (alreadyInWaitlist || isBooker) {
-            return res.status(400).json({ msg: 'أنت مسجل بالفعل في قائمة هذا الغرض' });
         }
 
         if (item.status === 'متاح') {
@@ -99,17 +106,20 @@ exports.bookItem = async (req, res) => {
                 item 
             });
         } else {
+            // نظام قائمة الانتظار
+            const alreadyInWaitlist = item.waitlist.some(wait => wait.user.toString() === req.user.id);
+            if (alreadyInWaitlist) return res.status(400).json({ msg: 'أنت مسجل بالفعل في قائمة الانتظار' });
+
             item.waitlist.push({ user: req.user.id });
             await item.save();
             return res.json({ msg: 'الغرض محجوز حالياً، تم إضافتك لقائمة الانتظار 🕒', item });
         }
     } catch (err) {
-        console.error(err.message);
         res.status(500).send('خطأ في السيرفر أثناء الحجز');
     }
 };
 
-// 5. إلغاء الحجز
+// 6. 🟢 إلغاء الحجز والانسحاب من الطابور (التعديل صار هون)
 exports.cancelBooking = async (req, res) => {
     try {
         const item = await Item.findById(req.params.id);
@@ -117,19 +127,13 @@ exports.cancelBooking = async (req, res) => {
 
         const userId = req.user.id;
 
+        // 🟢 الحالة الأولى: اليوزر هو الشخص اللي حاجز القطعة فعلياً
         if (item.bookedBy && item.bookedBy.toString() === userId) {
             if (item.waitlist.length > 0) {
-                const nextUser = item.waitlist.shift(); 
+                const nextUser = item.waitlist.shift(); // بنسحب أول واحد بالطابور نعطيه الغرض
                 const newOtp = Math.floor(1000 + Math.random() * 9000).toString();
-                
                 item.bookedBy = nextUser.user;
                 item.deliveryOtp = newOtp;
-                
-                const luckyUser = await User.findById(nextUser.user);
-                if (luckyUser) {
-                    const message = `<h2>دورك وصل يا ${luckyUser.name}! 🎉</h2><p>كود الاستلام: <b>${newOtp}</b></p>`;
-                    await sendEmail({ email: luckyUser.email, subject: 'الغرض متاح لك الآن 🎁', message });
-                }
             } else {
                 item.bookedBy = null;
                 item.status = 'متاح';
@@ -139,68 +143,94 @@ exports.cancelBooking = async (req, res) => {
             return res.json({ msg: 'تم إلغاء حجزك بنجاح', item });
         }
 
-        // إزالة من الطابور
-        const inWaitlist = item.waitlist.some(wait => wait.user.toString() === userId);
-        if (inWaitlist) {
-            item.waitlist = item.waitlist.filter(wait => wait.user.toString() !== userId);
+        // 🟢 الحالة الثانية: اليوزر موجود بالطابور (Waitlist) وبده ينسحب
+        const inWaitlistIndex = item.waitlist.findIndex(wait => wait.user.toString() === userId);
+        if (inWaitlistIndex !== -1) {
+            item.waitlist.splice(inWaitlistIndex, 1); // بنمسح اليوزر من الطابور
             await item.save();
-            return res.json({ msg: 'تم إزالتك من قائمة الانتظار', item });
+            return res.json({ msg: 'تم انسحابك من طابور الانتظار بنجاح 🚶‍♂️', item });
         }
 
-        return res.status(400).json({ msg: 'أنت لست مسجلاً في هذا الغرض' });
+        // إذا ما كان حاجز ولا بالطابور
+        res.status(400).json({ msg: 'أنت لست الشخص الذي حجز هذا الغرض ولست في الطابور' });
     } catch (err) {
-        console.error(err.message);
+        console.error(err);
         res.status(500).send('خطأ في السيرفر');
     }
 };
 
-// 6. تعديل وحذف وإتمام التسليم
+// 7. إتمام التسليم (عن طريق المتبرع باستخدام الـ OTP)
+exports.completeDelivery = async (req, res) => {
+    try {
+        const { otp } = req.body; 
+        const item = await Item.findById(req.params.id);
+        
+        // 1. التأكد إن الغرض موجود وإن اليوزر هو المتبرع نفسه
+        if (!item || item.donor.toString() !== req.user.id) {
+            return res.status(401).json({ msg: 'غير مصرح لك بإتمام عملية التسليم' });
+        }
+
+        // 2. التأكد إن القطعة أصلاً محجوزة
+        if (item.status !== 'محجوز') {
+            return res.status(400).json({ msg: 'هذا الغرض ليس محجوزاً لتتم عملية تسليمه' });
+        }
+
+        // 3. مقارنة الـ OTP (مع تنظيف المسافات وتحويلها لنص لضمان التطابق 100%)
+        const savedOtp = String(item.deliveryOtp).trim();
+        const enteredOtp = String(otp).trim();
+
+        if (savedOtp !== enteredOtp) {
+            return res.status(400).json({ msg: 'الرمز الذي أدخلته غير صحيح ❌' });
+        }
+
+        // 4. إذا الرمز صح، بنغير الحالة وبنحذف الـ OTP
+        item.status = 'تم التسليم';
+        item.deliveryOtp = undefined;
+        await item.save();
+
+        res.json({ msg: 'تم تسليم الغرض بنجاح! شكراً لعطائك 💚', item });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('خطأ في السيرفر أثناء تأكيد التسليم');
+    }
+};
+
+// 8. تعديل الغرض
 exports.updateItem = async (req, res) => {
     try {
         let item = await Item.findById(req.params.id);
         if (!item) return res.status(404).json({ msg: 'الغرض غير موجود' });
-        if (item.donor.toString() !== req.user.id) return res.status(401).json({ msg: 'غير مصرح لك' });
 
-        const { title, description, category, location, condition, specs } = req.body;
-        if (title) item.title = title;
-        if (description) item.description = description;
-        if (category) item.category = category;
-        if (location) item.location = location;
-        if (condition) item.condition = condition;
-        if (specs) item.specs = typeof specs === 'string' ? JSON.parse(specs) : specs;
+        // التأكد إنه صاحب الغرض
+        if (item.donor.toString() !== req.user.id) {
+            return res.status(401).json({ msg: 'غير مصرح لك بتعديل هذا الغرض' });
+        }
 
-        await item.save();
-        res.json({ msg: 'تم التعديل بنجاح ✏️', item });
+        // لا يمكن تعديل غرض تم حجزه أو تسليمه
+        if (item.status !== 'متاح') {
+            return res.status(400).json({ msg: 'لا يمكن تعديل غرض محجوز أو تم تسليمه' });
+        }
+
+        item = await Item.findByIdAndUpdate(req.params.id, { $set: req.body }, { new: true });
+        res.json({ msg: 'تم تعديل الغرض بنجاح', item });
     } catch (err) {
         res.status(500).send('خطأ في السيرفر');
     }
 };
 
+// 9. حذف الغرض
 exports.deleteItem = async (req, res) => {
     try {
         const item = await Item.findById(req.params.id);
-        if (!item || item.donor.toString() !== req.user.id) return res.status(401).json({ msg: 'فشل الحذف' });
+        if (!item) return res.status(404).json({ msg: 'الغرض غير موجود' });
+
+        // هون بتيجي صلاحيات الأدمن: يقدر يحذف إما صاحب القطعة أو الأدمن
+        if (item.donor.toString() !== req.user.id && req.user.role !== 'admin') {
+            return res.status(401).json({ msg: 'غير مصرح لك بحذف هذا الغرض' });
+        }
+
         await item.deleteOne();
-        res.json({ msg: 'تم الحذف 🗑️' });
-    } catch (err) {
-        res.status(500).send('خطأ في السيرفر');
-    }
-};
-
-exports.completeDelivery = async (req, res) => {
-    try {
-        const { otp } = req.body || {}; 
-        const item = await Item.findById(req.params.id);
-        if (!item || item.donor.toString() !== req.user.id) return res.status(401).json({ msg: 'غير مصرح لك' });
-
-        if (item.deliveryOtp !== otp) return res.status(400).json({ msg: 'الرمز غير صحيح ❌' });
-
-        item.status = 'تم التسليم';
-        item.waitlist = [];
-        item.deliveryOtp = undefined;
-        await item.save();
-
-        res.json({ msg: 'تم تسليم الغرض بنجاح! 💚', item });
+        res.json({ msg: 'تم حذف الغرض بنجاح' });
     } catch (err) {
         res.status(500).send('خطأ في السيرفر');
     }

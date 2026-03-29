@@ -181,3 +181,28 @@ exports.login = async (req, res) => {
         res.status(500).send('خطأ في السيرفر');
     }
 };
+exports.getUserProfile = async (req, res) => {
+    try {
+        // 1. نجيب بيانات اليوزر بدون الباسوورد
+        const user = await User.findById(req.params.id).select('-password -__v');
+        if (!user) return res.status(404).json({ msg: 'المستخدم غير موجود' });
+
+        // 2. نجيب إحصائياته (كم غرض تبرع فيه)
+        const donationsCount = await Item.countDocuments({ donor: req.params.id });
+        
+        // 3. نجيب الأغراض اللي لسا "متاحة" بحسابه عشان الناس تشوفها
+        const activeDonations = await Item.find({ donor: req.params.id, status: 'متاح' })
+            .select('title imageUrl category location condition createdAt')
+            .sort({ createdAt: -1 });
+
+        res.json({
+            user,
+            stats: { donationsCount },
+            activeDonations
+        });
+    } catch (err) {
+        console.error(err);
+        if (err.kind === 'ObjectId') return res.status(404).json({ msg: 'المستخدم غير موجود' });
+        res.status(500).send('خطأ في السيرفر');
+    }
+};

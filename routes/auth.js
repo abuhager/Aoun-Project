@@ -1,8 +1,9 @@
 const express = require('express');
 const router = express.Router();
 // You are extracting the functions here:
-const { register, login, verifyEmail } = require('../controllers/authController');
+const { register, login, verifyEmail,getUserProfile } = require('../controllers/authController');
 
+router.get('/:id', getUserProfile);
 // مسار التسجيل
 router.post('/register', register);
 
