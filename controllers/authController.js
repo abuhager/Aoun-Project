@@ -7,33 +7,69 @@ exports.register = async (req, res) => {
     try {
         const { name, email, password } = req.body;
 
-        // التأكد من عدم وجود المستخدم مسبقاً
+        // 1. التأكد من وجود المستخدم مسبقاً
         let user = await User.findOne({ email });
-        if (user) return res.status(400).json({ msg: 'هذا الحساب موجود مسبقاً' });
 
-        // فحص إيميل الجامعات الأردنية والعالمية لمنح شارة طالب موثق
+        if (user) {
+            // الحالة الذكية: إذا الحساب موجود بس مش مفعل
+            if (!user.isVerified) {
+                // توليد كود تفعيل جديد
+                const newOtp = Math.floor(1000 + Math.random() * 9000).toString();
+                user.verificationOtp = newOtp;
+                
+                // تحديث الاسم والباسورد في حال قرر يغيرهم وهو لسا ما فعل
+                const salt = await bcrypt.genSalt(10);
+                user.password = await bcrypt.hash(password, salt);
+                user.name = name;
+
+                await user.save();
+
+                // إرسال إيميل بالكود الجديد (استخدام نفس القالب الفخم)
+                const resendMessage = `
+                    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; direction: rtl;">
+                        <h2 style="color: #006155;">أهلاً بك مجدداً في عون يا ${name}! 🎓</h2>
+                        <p style="font-size: 16px; color: #333;">يبدو أنك حاولت التسجيل مسبقاً ولم تفعل الحساب. إليك كود التفعيل الجديد:</p>
+                        <div style="background-color: #f3f4f5; padding: 20px; border-radius: 10px; display: inline-block; margin: 20px 0;">
+                            <h1 style="color: #087c6e; font-size: 40px; margin: 0; letter-spacing: 10px;">${newOtp}</h1>
+                        </div>
+                        <p style="font-size: 14px; color: #777;">أدخل هذا الكود لتتمكن من استخدام حسابك.</p>
+                    </div>
+                `;
+
+                await sendEmail({
+                    email: user.email,
+                    subject: 'تفعيل حسابك في منصة عون ✉️',
+                    message: resendMessage
+                });
+
+                return res.status(200).json({ 
+                    msg: 'هذا الحساب موجود مسبقاً ولكنه غير مفعل، تم إرسال كود جديد لإيميلك ✉️',
+                    needsVerification: true,
+                    email: user.email 
+                });
+            }
+
+            // إذا الحساب موجود ومفعل فعلاً
+            return res.status(400).json({ msg: 'هذا الحساب موجود مسبقاً ومفعل بالفعل، يمكنك تسجيل الدخول.' });
+        }
+
+        // 2. إنشاء مستخدم جديد (في حال لم يكن الإيميل موجوداً أصلاً)
         const isVerifiedStudent = email.endsWith('.edu') || email.endsWith('.edu.jo');
-
-        // تشفير الباسورد
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
-
-        // 🟢 توليد كود التفعيل (4 أرقام عشوائية)
         const otp = Math.floor(1000 + Math.random() * 9000).toString();
 
-        // إنشاء المستخدم
         user = new User({
             name,
             email,
             password: hashedPassword,
-            isVerifiedStudent, // رح تاخذ true أو false لحالها حسب الإيميل
-            isVerified: false, // 🟢 الحساب لسا مش مفعل
-            verificationOtp: otp // 🟢 تخزين كود التفعيل
+            isVerifiedStudent,
+            isVerified: false,
+            verificationOtp: otp
         });
 
         await user.save();
 
-        // 🟢 تجهيز رسالة الإيميل الفخمة (HTML)
         const message = `
             <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; direction: rtl;">
                 <h2 style="color: #006155;">مرحباً بك في مجتمع عون يا ${name}! 🎓</h2>
@@ -45,18 +81,15 @@ exports.register = async (req, res) => {
             </div>
         `;
 
-        // 🟢 إرسال الإيميل للطالب
         await sendEmail({
             email: user.email,
             subject: 'تفعيل حسابك في منصة عون ✉️',
             message: message
         });
 
-        // توليد التوكن (JWT)
         const payload = { user: { id: user.id, role: user.role } };
-        const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' }); // التوكن صالح لـ 7 أيام
+        const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
 
-        // إرجاع النتيجة للفرونت إند مع رسالة بتطلب منه يشيك إيميله
         res.status(201).json({ 
             msg: 'تم إنشاء الحساب بنجاح، يرجى تفقد بريدك الإلكتروني لتفعيل الحساب ✉️', 
             token, 
@@ -65,7 +98,7 @@ exports.register = async (req, res) => {
                 email: user.email, 
                 isVerifiedStudent: user.isVerifiedStudent, 
                 role: user.role,
-                isVerified: user.isVerified // نبعتها عشان الفرونت إند يعرف يوديه لصفحة التفعيل
+                isVerified: user.isVerified
             } 
         });
     } catch (err) {
