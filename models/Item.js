@@ -9,6 +9,10 @@ const itemSchema = new mongoose.Schema({
     location: { type: String, required: true }, 
     condition: { type: String, default: 'مستعمل ممتاز' },
     specs: { type: String, default: '' }, 
+    isRated: {
+    type: Boolean,
+    default: false
+},
     
     donor: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     bookedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },

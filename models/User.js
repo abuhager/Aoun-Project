@@ -6,6 +6,8 @@ const userSchema = new mongoose.Schema(
     email: { type: String, required: true, unique: true, trim: true },
     password: { type: String, required: true },
 phone: { type: String },
+reportsCount: { type: Number, default: 0 }, // عدد البلاغات اللي أكلها هاد الشخص
+isBanned: { type: Boolean, default: false }, // هل الحساب محظور؟
     // الإضافات الجديدة حسب خطتك:
     role: {
       type: String,
@@ -23,6 +25,7 @@ phone: { type: String },
     trustScore: { type: Number, default: 100 }, // نقاط الثقة تبدأ من 100
     quota: { type: Number, default: 3 }, // الحصة الأسبوعية (مثلاً 3 أغراض)
   },
+  
   
   { timestamps: true },
 );

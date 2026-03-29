@@ -148,7 +148,9 @@ exports.login = async (req, res) => {
         // البحث عن المستخدم
         let user = await User.findOne({ email });
         if (!user) return res.status(400).json({ msg: 'البريد الإلكتروني غير صحيح' });
-
+    if (user.isBanned) {
+    return res.status(403).json({ msg: 'هذا الحساب محظور بسبب مخالفة معايير مجتمع عون 🛑' });
+    }
         // مطابقة الباسورد
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) return res.status(400).json({ msg: 'كلمة الدخول غير صحيحة' });
@@ -184,32 +186,40 @@ exports.login = async (req, res) => {
 };
 exports.getUserProfile = async (req, res) => {
     try {
-        // 1. جلب بيانات اليوزر (تأكد إن phone موجود بالـ Model عشان يظهر هون)
+        // 1. جلب بيانات اليوزر (بما فيها phone و trustScore)
         const user = await User.findById(req.params.id).select('-password -__v');
         if (!user) return res.status(404).json({ msg: 'المستخدم غير موجود' });
 
-        // 2. كل التبرعات (مع جلب بيانات الشخص اللي حجز إذا وجد عشان الأرشفة)
+        // 2. كل التبرعات اللي عرضها هذا الشخص
         const allDonations = await Item.find({ donor: req.params.id })
-            .populate('bookedBy', 'name avatar') // 🟢 إضافة اختيارية لزيادة التفاصيل
+            .populate('bookedBy', 'name avatar')
             .sort({ createdAt: -1 });
 
-        // 3. كل الطلبات اللي هو استلمها (مع جلب بيانات المتبرع الأصلي)
+        // 3. كل الأغراض اللي هذا الشخص استلمها فعلياً
         const completedRequests = await Item.find({ 
             bookedBy: req.params.id, 
             status: 'تم التسليم' 
         })
-        .populate('donor', 'name avatar') // 🟢 عشان نعرف من مين استلم
+        .populate('donor', 'name avatar')
         .sort({ createdAt: -1 });
 
-        // 4. إحصائيات سريعة
+        // 🟢 التعديل الجديد: عدّاد التقييمات الفعلي
+        // بنعد كم غرض لهذا المتبرع تم تقييمه من قبل المستلمين
+        const totalRatings = await Item.countDocuments({ 
+            donor: req.params.id, 
+            isRated: true 
+        });
+
+        // 4. إحصائيات سريعة وشاملة
         const stats = {
-            donationsCount: allDonations.length,
-            completedDonations: allDonations.filter(i => i.status === 'تم التسليم').length,
-            receivedCount: completedRequests.length
+            donationsCount: allDonations.length, // إجمالي اللي عرضه
+            completedDonations: allDonations.filter(i => i.status === 'تم التسليم').length, // اللي سلمه فعلياً
+            receivedCount: completedRequests.length, // اللي أخذه من غيره
+            totalRatings: totalRatings // 👈 هاد اللي رح يظهر بالبروفايل (عدد المقيمين)
         };
 
         res.json({
-            user, // 📱 حقل phone رح يوصل هون تلقائياً إذا مخزن بالداتابيز
+            user, 
             stats,
             allDonations,
             completedRequests

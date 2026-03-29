@@ -248,3 +248,80 @@ exports.deleteItem = async (req, res) => {
         res.status(500).send('خطأ في السيرفر');
     }
 };
+exports.rateItem = async (req, res) => {
+    try {
+        const { rating } = req.body; // التقييم من 1 لـ 5
+        const item = await Item.findById(req.params.id);
+
+        if (!item) return res.status(404).json({ msg: 'الغرض غير موجود' });
+        
+        // التأكد إن اللي بقيم هو المستلم (bookedBy)
+        if (item.bookedBy.toString() !== req.user.id) {
+            return res.status(401).json({ msg: 'فقط المستلم يمكنه تقييم هذه العملية' });
+        }
+
+        if (item.status !== 'تم التسليم') {
+            return res.status(400).json({ msg: 'لا يمكنك التقييم قبل إتمام التسليم' });
+        }
+
+        if (item.isRated) {
+            return res.status(400).json({ msg: 'لقد قمت بتقييم هذا الغرض مسبقاً' });
+        }
+
+        // تحديث نقاط الثقة للمتبرع (Donor)
+        const donor = await User.findById(item.donor);
+        
+        // حسبة بسيطة: 5 نجوم (+5 نقاط)، 1-2 نجمة (-5 نقاط)، 3-4 (نقطتين)
+        let points = 0;
+        if (rating >= 5) points = 5;
+        else if (rating >= 3) points = 2;
+        else points = -5;
+
+        donor.trustScore = Math.min(100, Math.max(0, (donor.trustScore || 85) + points));
+        await donor.save();
+
+        // مارك الغرض كـ مقيم
+        item.isRated = true;
+        await item.save();
+
+        res.json({ msg: 'شكراً لتقييمك! تم تحديث نقاط الثقة للمتبرع 🌟', trustScore: donor.trustScore });
+    } catch (err) {
+        res.status(500).send('خطأ في السيرفر أثناء التقييم');
+    }
+};
+exports.reportUser = async (req, res) => {
+    try {
+        const { reportedUserId, reason } = req.body;
+
+        // 1. منع المستخدم من التبليغ عن نفسه
+        if (req.user.id === reportedUserId) {
+            return res.status(400).json({ msg: 'لا يمكنك التبليغ عن نفسك! 🤔' });
+        }
+
+        const user = await User.findById(reportedUserId);
+        if (!user) return res.status(404).json({ msg: 'المستخدم غير موجود' });
+
+        // 2. زيادة عدد البلاغات
+        user.reportsCount = (user.reportsCount || 0) + 1;
+
+        // 3. عقوبة تصاعدية
+        if (user.reportsCount >= 3) {
+            user.trustScore = Math.max(0, user.trustScore - 50); // خصم نص النقاط
+            
+            // 🛑 إذا زادت البلاغات عن 5 مثلاً، بنعمل حظر تلقائي (اختياري)
+            if (user.reportsCount >= 5) {
+                user.isBanned = true;
+            }
+        }
+
+        await user.save();
+        res.json({ 
+            msg: 'تم تقديم البلاغ بنجاح، فريق عون سيراجع الحالة لضمان أمان المجتمع 🛡️',
+            reportsCount: user.reportsCount 
+        });
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('خطأ في السيرفر أثناء تقديم البلاغ');
+    }
+};

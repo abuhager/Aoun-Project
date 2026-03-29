@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const upload = require('../middlewares/upload'); // استدعاء العتّال
 const auth = require('../middlewares/auth'); // 👮‍♂️ استدعينا الحارس
-const { createItem, getItems ,bookItem, cancelBooking , updateItem, deleteItem, completeDelivery,getItemById,getMyItems} = require('../controllers/itemController'); // لا تنسى تضيف getItems بالاستدعاء فوق
+const { createItem, getItems ,bookItem, cancelBooking , updateItem, deleteItem, completeDelivery,getItemById,getMyItems,rateItem, reportUser} = require('../controllers/itemController'); // لا تنسى تضيف getItems بالاستدعاء فوق
 
 // مسار إضافة غرض جديد (مع صورة)
 // استخدمنا upload.single('image') عشان نستقبل ملف واحد اسمه 'image'
@@ -28,5 +28,6 @@ router.delete('/delete/:id', auth, deleteItem);
 
 // مسار إتمام التسليم: http://localhost:5000/api/items/complete/:id
 router.put('/complete/:id', auth, completeDelivery);
-
+router.put('/rate/:id', auth,rateItem);
+router.post('/report-user', auth, reportUser);
 module.exports = router;
