@@ -5,7 +5,7 @@ const userSchema = new mongoose.Schema(
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, trim: true },
     password: { type: String, required: true },
-
+phone: { type: String },
     // الإضافات الجديدة حسب خطتك:
     role: {
       type: String,
@@ -23,6 +23,7 @@ const userSchema = new mongoose.Schema(
     trustScore: { type: Number, default: 100 }, // نقاط الثقة تبدأ من 100
     quota: { type: Number, default: 3 }, // الحصة الأسبوعية (مثلاً 3 أغراض)
   },
+  
   { timestamps: true },
 );
 

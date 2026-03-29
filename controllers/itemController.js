@@ -25,29 +25,30 @@ exports.getItems = async (req, res) => {
 // 2. جلب أغراضي الشخصية (للـ Dashboard)
 exports.getMyItems = async (req, res) => {
     try {
-        const user = await User.findById(req.user.id).select('name email trustScore');
+        // ضفنا phone لبيانات اليوزر نفسه للاحتياط
+        const user = await User.findById(req.user.id).select('name email trustScore phone'); 
         
-        // 🟢 هون التعديل: ضفنا populate لـ bookedBy عشان نجيب بيانات المستلم
+        // 🟢 التعديل: ضفنا phone هون عشان المتبرع يقدر يحكي مع المستلم
         const myDonations = await Item.find({ donor: req.user.id })
-            .populate('bookedBy', 'name avatar trustScore email') 
+            .populate('bookedBy', 'name avatar trustScore email phone') 
             .sort({ createdAt: -1 });
 
-        // 🟢 وضفنا populate لـ donor عشان المستلم يشوف بروفايل المتبرع
+        // 🟢 وهون موجود أصلاً (عشان المستلم يحكي مع المتبرع)
         const myRequests = await Item.find({ bookedBy: req.user.id })
-            .populate('donor', 'name avatar trustScore email')
+            .populate('donor', 'name avatar trustScore email phone')
             .sort({ createdAt: -1 });
 
         res.json({ user, myDonations, myRequests });
     } catch (err) {
+        console.error(err.message);
         res.status(500).send('خطأ في السيرفر');
     }
 };
-
 // 3. جلب غرض واحد بالتفصيل
 exports.getItemById = async (req, res) => {
     try {
         const item = await Item.findById(req.params.id)
-            .populate('donor', 'name trustScore avatar location isVerified');
+            .populate('donor', 'name phone trustScore avatar location isVerified');
 
         if (!item) {
             return res.status(404).json({ msg: 'هذا الغرض غير موجود' });
