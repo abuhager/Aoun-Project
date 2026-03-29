@@ -124,6 +124,7 @@ exports.cancelBooking = async (req, res) => {
         const userId = req.user.id;
 
         // السيناريو الأول: المستخدم هو الشخص اللي حاجز الغرض فعلياً
+        // السيناريو الأول: المستخدم هو الشخص اللي حاجز الغرض فعلياً
         if (item.bookedBy && item.bookedBy.toString() === userId) {
             // هل في حدا بيستنى بالطابور؟
             if (item.waitlist.length > 0) {
