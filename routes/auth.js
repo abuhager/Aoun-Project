@@ -1,13 +1,15 @@
 const express = require('express');
 const router = express.Router();
-const { register, login } = require('../controllers/authController');
+// You are extracting the functions here:
+const { register, login, verifyEmail } = require('../controllers/authController');
 
-// مسار التسجيل: http://localhost:5000/api/auth/register
+// مسار التسجيل
 router.post('/register', register);
 
-router.post('/verify-email', authController.verifyEmail);
+// FIX: Remove "authController." and use the extracted function name directly
+router.post('/verify-email', verifyEmail); 
 
-// مسار تسجيل الدخول: http://localhost:5000/api/auth/login
+// مسار تسجيل الدخول
 router.post('/login', login);
 
 module.exports = router;
