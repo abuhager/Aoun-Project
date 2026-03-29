@@ -22,7 +22,7 @@ isBanned: { type: Boolean, default: false }, // هل الحساب محظور؟
       type: String, // هون بنخزن كود التفعيل المكون من 4 أرقام
     },
     isVerifiedStudent: { type: Boolean, default: false }, // شارة الطالب الموثق
-    trustScore: { type: Number, default: 100 }, // نقاط الثقة تبدأ من 100
+    trustScore: { type: Number, default: 70 }, // نقاط الثقة تبدأ من 100
     quota: { type: Number, default: 3 }, // الحصة الأسبوعية (مثلاً 3 أغراض)
   },
   

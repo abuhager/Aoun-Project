@@ -8,7 +8,6 @@ const itemSchema = new mongoose.Schema({
     // 🟢 ضفنا الحقول الناقصة هون عشان تتخزن صح
     location: { type: String, required: true }, 
     condition: { type: String, default: 'مستعمل ممتاز' },
-    specs: { type: String, default: '' }, 
     isRated: {
     type: Boolean,
     default: false
