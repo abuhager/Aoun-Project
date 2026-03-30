@@ -82,11 +82,24 @@ exports.bookItem = async (req, res) => {
             return res.status(400).json({ msg: 'لا يمكنك حجز غرض قمت بتبرعه بنفسك' });
         }
 
+        // 🛡️ التعديل الجديد: فحص إجبارية التقييم
+        const unratedItem = await Item.findOne({
+            bookedBy: req.user.id,
+            status: 'تم التسليم',
+            isRated: false
+        });
+
+        if (unratedItem) {
+            return res.status(400).json({ 
+                msg: `العطاء بيكمل بكلمة شكر! 💚 الرجاء تقييم المتبرع للغرض (${unratedItem.title}) قبل حجز أغراض جديدة.` 
+            });
+        }
+
         const bookerUser = await User.findById(req.user.id);
 
-        // 🟢 التعديل الجديد: التأكد من توفر الكوتا قبل أي إجراء
+        // التأكد من توفر الكوتا قبل أي إجراء
         if (bookerUser.quota <= 0) {
-            return res.status(400).json({ msg: 'لقد استنفدت حصتك الأسبوعية من الحجوزات ⚠️' });
+            return res.status(400).json({ msg: 'لقد استنفدت حصتك الشهرية من الحجوزات ⚠️' });
         }
 
         // الحالة أ: الغرض متاح تماماً
@@ -98,7 +111,7 @@ exports.bookItem = async (req, res) => {
             item.bookedBy = req.user.id;
             item.deliveryOtp = otp; 
             
-            // 🟢 التعديل الجديد: خصم نقطة من حصة المستخدم
+            // خصم نقطة من حصة المستخدم
             bookerUser.quota -= 1;
             
             // حفظ التغييرات للمستخدم والغرض
@@ -130,7 +143,7 @@ exports.bookItem = async (req, res) => {
         item.waitlist.push({ user: req.user.id });
         await item.save();
 
-        // 📩 إيميل الانضمام لقائمة الانتظار
+        // إيميل الانضمام لقائمة الانتظار
         sendEmail({
             email: bookerUser.email,
             subject: `قائمة الانتظار: ${item.title} 🕒`,
@@ -144,8 +157,6 @@ exports.bookItem = async (req, res) => {
     }
 };
 
-// 6. إلغاء الحجز والانسحاب من الطابور (Shift Logic + Emails) 🔄✉️
-// 6. إلغاء الحجز والانسحاب من الطابور (Shift Logic + Emails) 🔄✉️
 // 6. إلغاء الحجز والانسحاب من الطابور (Shift Logic + Emails) 🔄✉️
 exports.cancelBooking = async (req, res) => {
     try {
