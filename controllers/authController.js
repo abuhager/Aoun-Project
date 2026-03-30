@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const Item = require('../models/Item');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto'); // للتعامل مع التوكنات الخاصة بإعادة تعيين كلمة المرور
 const jwt = require('jsonwebtoken');
 const sendEmail = require('../utils/sendEmail'); // تأكد من المسار حسب ملفاتك
 // 1. دالة التسجيل (Register)
@@ -228,5 +229,86 @@ exports.getUserProfile = async (req, res) => {
         console.error(err);
         if (err.kind === 'ObjectId') return res.status(404).json({ msg: 'المستخدم غير موجود' });
         res.status(500).send('خطأ في السيرفر');
+    }
+};
+// 1️⃣ طلب رابط استرجاع كلمة المرور (نسيت كلمة المرور)
+exports.forgotPassword = async (req, res) => {
+    try {
+        const user = await User.findOne({ email: req.body.email });
+        if (!user) {
+            return res.status(404).json({ msg: 'لا يوجد حساب مسجل بهذا الإيميل' });
+        }
+
+        // توليد رمز عشوائي آمن
+        const resetToken = crypto.randomBytes(20).toString('hex');
+
+        // تشفير الرمز وتخزينه بالداتا بيس (للحماية)
+        user.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+        user.resetPasswordExpire = Date.now() + 15 * 60 * 1000; // الرمز صالح لمدة 15 دقيقة فقط
+
+        await user.save();
+
+        // إنشاء الرابط اللي رح يكبس عليه اليوزر (رابط الفرونت إند)
+        // 🟢 تأكد إن البورت تبع الفرونت إند 3000
+        const resetUrl = `http://localhost:3000/reset-password/${resetToken}`;
+
+        const message = `
+            <div dir="rtl">
+                <h2>طلب استعادة كلمة المرور</h2>
+                <p>لقد طلبت استعادة كلمة المرور لحسابك في منصة عون.</p>
+                <p>يرجى النقر على الرابط أدناه لتعيين كلمة مرور جديدة (هذا الرابط صالح لمدة 15 دقيقة فقط):</p>
+                <a href="${resetUrl}" style="background-color: #006155; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block; margin-top: 10px;">إعادة تعيين كلمة المرور</a>
+                <p style="margin-top: 20px; font-size: 12px; color: gray;">إذا لم تقم بهذا الطلب، يرجى تجاهل هذا البريد.</p>
+            </div>
+        `;
+
+        try {
+            await sendEmail({
+                email: user.email,
+                subject: 'استعادة كلمة المرور - منصة عون 🔒',
+                message: message
+            });
+
+            res.status(200).json({ msg: 'تم إرسال رابط استعادة كلمة المرور إلى بريدك الإلكتروني' });
+        } catch (err) {
+            // لو فشل الإيميل، بنظف الداتا بيس
+            user.resetPasswordToken = undefined;
+            user.resetPasswordExpire = undefined;
+            await user.save();
+            return res.status(500).json({ msg: 'حدث خطأ أثناء إرسال البريد الإلكتروني' });
+        }
+    } catch (err) {
+        res.status(500).json({ msg: 'خطأ في السيرفر' });
+    }
+};
+
+// 2️⃣ تعيين كلمة المرور الجديدة بعد الضغط على الرابط
+exports.resetPassword = async (req, res) => {
+    try {
+        // تشفير الرمز اللي إجى من الرابط عشان نقارنه باللي تخزن بالداتا بيس
+        const resetPasswordToken = crypto.createHash('sha256').update(req.params.token).digest('hex');
+
+        const user = await User.findOne({
+            resetPasswordToken,
+            resetPasswordExpire: { $gt: Date.now() } // التأكد إن الرمز لسا ما انتهى وقته
+        });
+
+        if (!user) {
+            return res.status(400).json({ msg: 'الرابط غير صالح أو انتهت صلاحيته ❌' });
+        }
+
+        // تشفير كلمة المرور الجديدة
+        const salt = await bcrypt.genSalt(10);
+        user.password = await bcrypt.hash(req.body.password, salt);
+
+        // تنظيف حقول الاسترجاع لأننا خلصنا منها
+        user.resetPasswordToken = undefined;
+        user.resetPasswordExpire = undefined;
+
+        await user.save();
+
+        res.status(200).json({ msg: 'تم تغيير كلمة المرور بنجاح! يمكنك الآن تسجيل الدخول ✅' });
+    } catch (err) {
+        res.status(500).json({ msg: 'خطأ في السيرفر' });
     }
 };

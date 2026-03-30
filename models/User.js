@@ -8,8 +8,9 @@ const userSchema = new mongoose.Schema(
 phone: { type: String },
 reportsCount: { type: Number, default: 0 }, // عدد البلاغات اللي أكلها هاد الشخص
 isBanned: { type: Boolean, default: false }, // هل الحساب محظور؟
-    // الإضافات الجديدة حسب خطتك:
-    role: {
+resetPasswordToken: String,
+  resetPasswordExpire: Date,
+      role: {
       type: String,
       default: "user",
       enum: ["user", "admin", "super_admin"],
