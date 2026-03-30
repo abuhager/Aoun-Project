@@ -25,19 +25,11 @@ exports.getItems = async (req, res) => {
 // 2. جلب أغراضي الشخصية (للـ Dashboard)
 exports.getMyItems = async (req, res) => {
     try {
-        const user = await User.findById(req.user.id).select('name email trustScore phone quota'); 
-        
-        const myDonationsDocs = await Item.find({ donor: req.user.id })
-            .populate('bookedBy', 'name avatar trustScore email phone') 
-            .select('+deliveryOtp')
-            .sort({ createdAt: -1 })
-            .lean();
-
-        const myRequestsDocs = await Item.find({ bookedBy: req.user.id })
-            .populate('donor', 'name avatar trustScore email phone')
-            .select('+deliveryOtp')
-            .sort({ createdAt: -1 })
-            .lean();
+        const [user, myDonationsDocs, myRequestsDocs] = await Promise.all([
+            User.findById(req.user.id).select('name email trustScore phone quota lean'),
+            Item.find({ donor: req.user.id }).populate('bookedBy', 'name avatar trustScore email phone').select('+deliveryOtp').sort({ createdAt: -1 }).lean(),
+            Item.find({ bookedBy: req.user.id }).populate('donor', 'name avatar trustScore email phone').select('+deliveryOtp').sort({ createdAt: -1 }).lean()
+        ]);
 
         const myDonations = myDonationsDocs.map(item => ({ ...item, otp: item.deliveryOtp }));
         const myRequests = myRequestsDocs.map(item => ({ ...item, otp: item.deliveryOtp }));
@@ -92,17 +84,29 @@ exports.bookItem = async (req, res) => {
 
         const bookerUser = await User.findById(req.user.id);
 
+        // 🟢 التعديل الجديد: التأكد من توفر الكوتا قبل أي إجراء
+        if (bookerUser.quota <= 0) {
+            return res.status(400).json({ msg: 'لقد استنفدت حصتك الأسبوعية من الحجوزات ⚠️' });
+        }
+
         // الحالة أ: الغرض متاح تماماً
         if (item.status === 'متاح') {
             const otp = Math.floor(1000 + Math.random() * 9000).toString();
+            
+            // تحديث حالة الغرض
             item.status = 'محجوز';
             item.bookedBy = req.user.id;
             item.deliveryOtp = otp; 
-            await item.save();
+            
+            // 🟢 التعديل الجديد: خصم نقطة من حصة المستخدم
+            bookerUser.quota -= 1;
+            
+            // حفظ التغييرات للمستخدم والغرض
+            await Promise.all([item.save(), bookerUser.save()]);
 
             const donorUser = await User.findById(item.donor);
 
-            // 📩 إرسال الإيميلات بالخلفية (بدون ما نعطل السيرفر)
+            // إرسال الإيميلات بالخلفية
             sendEmail({
                 email: bookerUser.email,
                 subject: `تأكيد حجز: ${item.title} 🎁`,
@@ -142,6 +146,7 @@ exports.bookItem = async (req, res) => {
 
 // 6. إلغاء الحجز والانسحاب من الطابور (Shift Logic + Emails) 🔄✉️
 // 6. إلغاء الحجز والانسحاب من الطابور (Shift Logic + Emails) 🔄✉️
+// 6. إلغاء الحجز والانسحاب من الطابور (Shift Logic + Emails) 🔄✉️
 exports.cancelBooking = async (req, res) => {
     try {
         const item = await Item.findById(req.params.id);
@@ -152,51 +157,71 @@ exports.cancelBooking = async (req, res) => {
         // الحالة الأولى: الشخص الأساسي هو اللي كنسل
         if (item.bookedBy && item.bookedBy.toString() === userId) {
             
-            // 🟢 جلب بيانات المتبرع عشان نراسله
-            const donorUser = await User.findById(item.donor);
+            // 🟢 جلب بيانات المتبرع والمستخدم الحالي
+            const [donorUser, userWhoCancelled] = await Promise.all([
+                User.findById(item.donor),
+                User.findById(userId)
+            ]);
+
+            // 🟢 إعادة نقطة الكوتا للشخص الذي ألغى حجزه
+            if (userWhoCancelled) {
+                userWhoCancelled.quota += 1;
+                await userWhoCancelled.save();
+            }
 
             if (item.waitlist.length > 0) {
-                // سحب أول واحد من الطابور وتعيينه كمستلم جديد
+                // سحب أول واحد من الطابور
                 const nextInLine = item.waitlist.shift(); 
-                const newOtp = Math.floor(1000 + Math.random() * 9000).toString();
                 
-                item.bookedBy = nextInLine.user;
-                item.deliveryOtp = newOtp;
-                await item.save();
-
-                // 📩 إرسال إيميل للشخص المحظوظ اللي إجا دوره
+                // 🟢 التأكد من أن الشخص التالي في الطابور لديه حصة كافية
                 const luckyUser = await User.findById(nextInLine.user);
-                if (luckyUser) {
+                
+                if (luckyUser && luckyUser.quota > 0) {
+                    const newOtp = Math.floor(1000 + Math.random() * 9000).toString();
+                    
+                    item.bookedBy = nextInLine.user;
+                    item.deliveryOtp = newOtp;
+                    
+                    // 🟢 خصم حصة من المستخدم الجديد
+                    luckyUser.quota -= 1;
+                    
+                    await Promise.all([item.save(), luckyUser.save()]);
+
+                    // إرسال الإيميلات
                     sendEmail({
                         email: luckyUser.email,
                         subject: `أخبار رائعة! الغرض أصبح لك 🎉`,
                         message: `<div dir="rtl">مرحباً <b>${luckyUser.name}</b>،<br><br>الشخص الذي قبلك ألغى حجزه، والغرض (<b>${item.title}</b>) أصبح لك الآن!<br><br>رمز الاستلام الخاص بك هو: <h2 style="color:#006155; letter-spacing:2px;">${newOtp}</h2>يرجى التواصل مع المتبرع في أقرب وقت لاستلام الغرض.</div>`
                     }).catch(console.error);
-                }
 
-                // 🟢 📩 إرسال إيميل للمتبرع لإبلاغه بتغير المستلم
-                if (donorUser && luckyUser) {
-                    sendEmail({
-                        email: donorUser.email,
-                        subject: `تحديث بخصوص غرضك: ${item.title} 🔄`,
-                        message: `<div dir="rtl">مرحباً <b>${donorUser.name}</b>،<br><br>الشخص الذي حجز غرضك (${item.title}) قام بإلغاء حجزه.<br>ولكن لا تقلق! تم تمرير الغرض تلقائياً للشخص التالي في قائمة الانتظار.<br><br>المستلم الجديد هو: <b>${luckyUser.name}</b>.<br>سيتواصل معك قريباً لتنسيق التسليم.</div>`
-                    }).catch(console.error);
-                }
+                    if (donorUser) {
+                        sendEmail({
+                            email: donorUser.email,
+                            subject: `تحديث بخصوص غرضك: ${item.title} 🔄`,
+                            message: `<div dir="rtl">مرحباً <b>${donorUser.name}</b>،<br><br>الشخص الذي حجز غرضك (${item.title}) قام بإلغاء حجزه.<br>وتم تمرير الغرض تلقائياً للمستلم الجديد: <b>${luckyUser.name}</b>.</div>`
+                        }).catch(console.error);
+                    }
 
-                return res.json({ msg: 'تم إلغاء حجزك وتمرير الغرض للشخص التالي في الانتظار 🔄', item });
+                    return res.json({ msg: 'تم إلغاء حجزك وتمرير الغرض للشخص التالي في الانتظار 🔄', item });
+                } else {
+                    // إذا الشخص التالي ما عنده كوتا، رجع الغرض متاح (أو يمكنك تطوير المنطق لتجربة الشخص اللي بعده)
+                    item.bookedBy = null;
+                    item.status = 'متاح';
+                    item.deliveryOtp = undefined;
+                    await item.save();
+                    return res.json({ msg: 'تم إلغاء حجزك بنجاح، والشخص التالي في الانتظار لم يمتلك حصة كافية، الغرض متاح الآن', item });
+                }
             } else {
-                // الطابور فاضي -> رجعه متاح
                 item.bookedBy = null;
                 item.status = 'متاح';
                 item.deliveryOtp = undefined; 
                 await item.save();
 
-                // 🟢 📩 إرسال إيميل للمتبرع لإبلاغه بأن الغرض عاد للعرض
                 if (donorUser) {
                     sendEmail({
                         email: donorUser.email,
                         subject: `غرضك متاح من جديد 📢`,
-                        message: `<div dir="rtl">مرحباً <b>${donorUser.name}</b>،<br><br>الشخص الذي حجز غرضك (<b>${item.title}</b>) قام بإلغاء الحجز، ولم يكن هناك أحد في قائمة الانتظار.<br><br>لقد عاد الغرض الآن متاحاً للجميع في المنصة.</div>`
+                        message: `<div dir="rtl">مرحباً <b>${donorUser.name}</b>،<br><br>تم إلغاء الحجز، وعاد غرضك (<b>${item.title}</b>) متاحاً للجميع.</div>`
                     }).catch(console.error);
                 }
 

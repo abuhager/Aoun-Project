@@ -19,8 +19,7 @@ const { name, email, password, phone } = req.body;
                 user.verificationOtp = newOtp;
                 
                 // تحديث الاسم والباسورد في حال قرر يغيرهم وهو لسا ما فعل
-                const salt = await bcrypt.genSalt(10);
-                user.password = await bcrypt.hash(password, salt);
+                const hashedPassword = await bcrypt.hash(password, 10);
                 user.name = name;
 
                 await user.save();
@@ -186,45 +185,25 @@ exports.login = async (req, res) => {
     }
 };
 exports.getUserProfile = async (req, res) => {
-    try {
-        // 1. جلب بيانات اليوزر (بما فيها phone و trustScore)
-        const user = await User.findById(req.params.id).select('-password -__v');
+   try {
+        // تشغيل كل الاستعلامات بالتوازي (Concurrent)
+        const [user, allDonations, completedRequests, totalRatings] = await Promise.all([
+            User.findById(req.params.id).select('-password -__v'),
+            Item.find({ donor: req.params.id }).populate('bookedBy', 'name avatar').sort({ createdAt: -1 }),
+            Item.find({ bookedBy: req.params.id, status: 'تم التسليم' }).populate('donor', 'name avatar').sort({ createdAt: -1 }),
+            Item.countDocuments({ donor: req.params.id, isRated: true })
+        ]);
+
         if (!user) return res.status(404).json({ msg: 'المستخدم غير موجود' });
 
-        // 2. كل التبرعات اللي عرضها هذا الشخص
-        const allDonations = await Item.find({ donor: req.params.id })
-            .populate('bookedBy', 'name avatar')
-            .sort({ createdAt: -1 });
-
-        // 3. كل الأغراض اللي هذا الشخص استلمها فعلياً
-        const completedRequests = await Item.find({ 
-            bookedBy: req.params.id, 
-            status: 'تم التسليم' 
-        })
-        .populate('donor', 'name avatar')
-        .sort({ createdAt: -1 });
-
-        // 🟢 التعديل الجديد: عدّاد التقييمات الفعلي
-        // بنعد كم غرض لهذا المتبرع تم تقييمه من قبل المستلمين
-        const totalRatings = await Item.countDocuments({ 
-            donor: req.params.id, 
-            isRated: true 
-        });
-
-        // 4. إحصائيات سريعة وشاملة
         const stats = {
-            donationsCount: allDonations.length, // إجمالي اللي عرضه
-            completedDonations: allDonations.filter(i => i.status === 'تم التسليم').length, // اللي سلمه فعلياً
-            receivedCount: completedRequests.length, // اللي أخذه من غيره
-            totalRatings: totalRatings // 👈 هاد اللي رح يظهر بالبروفايل (عدد المقيمين)
+            donationsCount: allDonations.length,
+            completedDonations: allDonations.filter(i => i.status === 'تم التسليم').length,
+            receivedCount: completedRequests.length,
+            totalRatings
         };
 
-        res.json({
-            user, 
-            stats,
-            allDonations,
-            completedRequests
-        });
+        res.json({ user, stats, allDonations, completedRequests });
     } catch (err) {
         console.error(err);
         if (err.kind === 'ObjectId') return res.status(404).json({ msg: 'المستخدم غير موجود' });
@@ -288,13 +267,20 @@ exports.resetPassword = async (req, res) => {
         // تشفير الرمز اللي إجى من الرابط عشان نقارنه باللي تخزن بالداتا بيس
         const resetPasswordToken = crypto.createHash('sha256').update(req.params.token).digest('hex');
 
+        // 🟢 ضفنا .select('+password') عشان نجيب الباسوورد القديم من الداتا بيس ونقارنه
         const user = await User.findOne({
             resetPasswordToken,
             resetPasswordExpire: { $gt: Date.now() } // التأكد إن الرمز لسا ما انتهى وقته
-        });
+        }).select('+password'); 
 
         if (!user) {
             return res.status(400).json({ msg: 'الرابط غير صالح أو انتهت صلاحيته ❌' });
+        }
+
+        // 🟢 اللمسة الأمنية (Security Check): نتأكد إن الباسوورد الجديد مش نفس القديم
+        const isSamePassword = await bcrypt.compare(req.body.password, user.password);
+        if (isSamePassword) {
+            return res.status(400).json({ msg: 'يرجى اختيار كلمة مرور جديدة تختلف عن الحالية ❌' });
         }
 
         // تشفير كلمة المرور الجديدة
