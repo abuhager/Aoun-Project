@@ -3,16 +3,18 @@ const nodemailer = require('nodemailer');
 const sendEmail = async (options) => {
   // 1. إعداد حساب الجيميل اللي رح نبعت منه
  const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com', // 🟢 تحديد السيرفر مباشرة بدل service
-    port: 465,              // 🟢 استخدام البورت الآمن
-    secure: true,           // 🟢 تفعيل الحماية
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
     },
     tls: {
-        rejectUnauthorized: false // 🟢 تجاوز تدقيق السيرفرات السحابية
-    }
+        rejectUnauthorized: false
+    },
+    // 🟢 الضربة القاضية: إجبار السيرفر على استخدام شبكة IPv4 المدعومة
+    family: 4 
 });
 
   // 2. تجهيز محتوى الرسالة
