@@ -2,13 +2,17 @@ const nodemailer = require('nodemailer');
 
 const sendEmail = async (options) => {
   // 1. إعداد حساب الجيميل اللي رح نبعت منه
-  const transporter = nodemailer.createTransport({
+ const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
-      user: process.env.EMAIL_USER, // إيميلك إنت (إيميل المنصة)
-      pass: process.env.EMAIL_PASS  // باسورد التطبيقات (رح أشرحلك إياه)
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+    },
+    // 🟢 السطرين السحريات اللي بيحلوا مشكلة Render و Google
+    tls: {
+        rejectUnauthorized: false 
     }
-  });
+});
 
   // 2. تجهيز محتوى الرسالة
   const mailOptions = {
