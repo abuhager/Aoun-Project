@@ -1,5 +1,11 @@
 const Item = require('../models/Item');
 const User = require('../models/User');
+const cloudinary = require('cloudinary').v2;
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
+});
 // 🟢 تأكد إنك تعدل المسار حسب وين حطيت ملف الإيميل عندك
 const sendEmail = require('../utils/sendEmail'); 
 
@@ -54,21 +60,37 @@ exports.getItemById = async (req, res) => {
     }
 };
 
-// 4. إضافة غرض جديد
 exports.createItem = async (req, res) => {
     try {
         const { title, description, category, location, condition } = req.body;
-        let imageUrl = req.file ? req.file.path : '';
+        let imageUrl = '';
+
+        // 🟢 الرفع اليدوي لـ Cloudinary من الـ Buffer
+        if (req.file) {
+            const uploadPromise = new Promise((resolve, reject) => {
+                const stream = cloudinary.uploader.upload_stream(
+                    { folder: 'aoun_items' },
+                    (error, result) => {
+                        if (result) resolve(result.secure_url);
+                        else reject(error);
+                    }
+                );
+                stream.end(req.file.buffer); // نرسل ملف الصورة للسيرفر
+            });
+            imageUrl = await uploadPromise;
+        }
 
         const newItem = new Item({
-            title, description, category, location, condition, imageUrl,
+            title, description, category, location, condition, 
+            imageUrl: imageUrl || 'https://res.cloudinary.com/demo/image/upload/v1312461204/sample.jpg',
             donor: req.user.id 
         });
 
-        const item = await newItem.save();
-        res.status(201).json({ msg: 'تم إضافة التبرع بنجاح 🎁', item });
+        await newItem.save();
+        res.status(201).json({ msg: 'تم إضافة التبرع بنجاح 🎁', item: newItem });
     } catch (err) {
-        res.status(500).json({ msg: 'خطأ في السيرفر أثناء إضافة الغرض' });
+        console.error("❌ الخطأ الحقيقي هون يا أدهم:", err.message);
+        res.status(500).json({ msg: 'فشل في الإضافة، شيك على الـ Logs', error: err.message });
     }
 };
 
