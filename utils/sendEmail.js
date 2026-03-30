@@ -3,14 +3,15 @@ const nodemailer = require('nodemailer');
 const sendEmail = async (options) => {
   // 1. إعداد حساب الجيميل اللي رح نبعت منه
  const transporter = nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp.gmail.com', // 🟢 تحديد السيرفر مباشرة بدل service
+    port: 465,              // 🟢 استخدام البورت الآمن
+    secure: true,           // 🟢 تفعيل الحماية
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
     },
-    // 🟢 السطرين السحريات اللي بيحلوا مشكلة Render و Google
     tls: {
-        rejectUnauthorized: false 
+        rejectUnauthorized: false // 🟢 تجاوز تدقيق السيرفرات السحابية
     }
 });
 
