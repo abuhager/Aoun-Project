@@ -282,31 +282,56 @@ exports.cancelBooking = async (req, res) => {
     }
 };
 
-// 7. إتمام التسليم
+// 7. إتمام التسليم (بالـ OTP) مع إرسال إيميلات الشكر والتقييم 🎁
+// استبدل فنكشن completeDelivery بهاد الكود المصفح
 exports.completeDelivery = async (req, res) => {
     try {
         const { otp } = req.body; 
         const item = await Item.findById(req.params.id);
         
         if (!item || item.donor.toString() !== req.user.id) {
-            return res.status(401).json({ msg: 'غير مصرح لك بإتمام عملية التسليم' });
-        }
-
-        if (item.status !== 'محجوز') {
-            return res.status(400).json({ msg: 'هذا الغرض ليس محجوزاً حالياً' });
+            return res.status(401).json({ msg: 'غير مصرح لك' });
         }
 
         if (String(item.deliveryOtp).trim() !== String(otp).trim()) {
-            return res.status(400).json({ msg: 'الرمز الذي أدخلته غير صحيح ❌' });
+            return res.status(400).json({ msg: 'الرمز غير صحيح ❌' });
         }
 
+        // 1. تحديث الداتا بيز فوراً
         item.status = 'تم التسليم';
         item.deliveryOtp = undefined; 
         await item.save();
 
-        res.json({ msg: 'تم تسليم الغرض بنجاح! شكراً لعطائك 💚', item });
+        // 2. إرسال الرد للفرونت إند (عشان المستخدم ما يستنى)
+        res.json({ msg: 'تم تسليم الغرض بنجاح! 💚', item });
+
+        // 3. 🟢 إرسال الإيميلات بالخلفية (بدون await للرد النهائي)
+        console.log("📨 بدأت عملية إرسال الإيميلات بالخلفية...");
+        
+        const [donorUser, receiverUser] = await Promise.all([
+            User.findById(item.donor),
+            User.findById(item.bookedBy)
+        ]);
+
+        if (receiverUser) {
+            sendEmail({
+                email: receiverUser.email,
+                subject: `تم استلام الغرض بنجاح 🎁`,
+                message: `<div dir="rtl">...</div>`
+            }).catch(err => console.error("❌ إيميل المستلم فشل:", err.message));
+        }
+
+        if (donorUser) {
+            sendEmail({
+                email: donorUser.email,
+                subject: `شكراً لعطائك! تم التسليم 🌟`,
+                message: `<div dir="rtl">...</div>`
+            }).catch(err => console.error("❌ إيميل المتبرع فشل:", err.message));
+        }
+
     } catch (err) {
-        res.status(500).json({ msg: 'خطأ في السيرفر أثناء تأكيد التسليم' });
+        console.error("🔥 كراش في completeDelivery:", err.message);
+        if (!res.headersSent) res.status(500).json({ msg: 'خطأ في السيرفر' });
     }
 };
 
