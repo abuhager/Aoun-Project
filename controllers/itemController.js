@@ -365,10 +365,11 @@ exports.rateItem = async (req, res) => {
 };
 
 // 9. التبليغ عن مستخدم
+// 9. التبليغ عن مستخدم (نظام العقوبات المتدرج العادل 🛡️)
 exports.reportUser = async (req, res) => {
     try {
         const { reportedUserId, reason } = req.body;
-        const reporterId = req.user.id; // الشخص اللي كبس زر البلاغ
+        const reporterId = req.user.id; 
 
         if (reporterId === reportedUserId) {
             return res.status(400).json({ msg: 'لا يمكنك التبليغ عن نفسك' });
@@ -380,22 +381,45 @@ exports.reportUser = async (req, res) => {
         // تهيئة المصفوفة إذا كانت مش موجودة
         if (!user.reportedBy) user.reportedBy = [];
 
-        // 🛑 1. منع السبام: هل هذا الشخص مبلغ عنه من قبل؟
+        // 🛑 منع السبام: فحص إذا كان المستخدم مبلغ عنه من نفس الشخص
         if (user.reportedBy.includes(reporterId)) {
             return res.status(400).json({ msg: 'لقد قمت بتقديم بلاغ ضد هذا المستخدم مسبقاً 🚫' });
         }
 
-        // إضافة البلاغ الجديد
+        // تسجيل البلاغ الجديد
         user.reportedBy.push(reporterId);
-        const totalReports = user.reportedBy.length; // عدد البلاغات الفعلي
+        const totalReports = user.reportedBy.length; 
 
-        // ⚖️ 2. المنطق العادل للخصم (خصم مرة واحدة فقط عند الوصول للرقم بالضبط)
-        if (totalReports === 3) {
-            // خصم 40 نقطة فقط عند البلاغ الثالث بالضبط
-            user.trustScore = Math.max(0, (user.trustScore || 85) - 40);
-        } else if (totalReports === 6) {
-            // حظر نهائي عند البلاغ السادس بالضبط
-            user.isBanned = true;
+        // ⚖️ تطبيق الخصم المتدرج
+        let pointsToDeduct = 0;
+
+        switch (totalReports) {
+            case 1:
+                pointsToDeduct = 0; // إنذار صامت
+                break;
+            case 2:
+                pointsToDeduct = 5;
+                break;
+            case 3:
+                pointsToDeduct = 10;
+                break;
+            case 4:
+                pointsToDeduct = 15;
+                break;
+            case 5:
+                pointsToDeduct = 20; // الضربة الأخيرة
+                break;
+            case 6:
+                user.isBanned = true; // طرد نهائي
+                break;
+            default:
+                pointsToDeduct = 0; 
+                break;
+        }
+
+        // تطبيق الخصم إذا كان في نقاط للخصم، مع التأكد إن الثقة ما تنزل تحت الصفر
+        if (pointsToDeduct > 0 && !user.isBanned) {
+            user.trustScore = Math.max(0, (user.trustScore || 85) - pointsToDeduct);
         }
 
         await user.save();

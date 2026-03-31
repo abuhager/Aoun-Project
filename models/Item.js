@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const itemSchema = new mongoose.Schema({
     title: { type: String, required: true, trim: true },
     description: { type: String, required: true },
-    category: { type: String, enum: ['كتب', 'إلكترونيات', 'أثاث', 'أخرى'], required: true },
+    category: { type: String, enum: ['كتب', 'إلكترونيات', 'أثاث', 'أخرى','ملابس'], required: true },
     imageUrl: { type: String, default: '' },
     // 🟢 ضفنا الحقول الناقصة هون عشان تتخزن صح
     location: { type: String, required: true }, 
