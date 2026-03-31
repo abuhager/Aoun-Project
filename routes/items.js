@@ -21,8 +21,7 @@ router.put('/book/:id', auth, bookItem);
 router.put('/cancel/:id', auth, cancelBooking);
 
 // مسار تعديل الغرض: http://localhost:5000/api/items/update/:id
-router.put('/update/:id', auth, updateItem);
-
+router.put('/update/:id', [auth, upload.single('image')], updateItem);
 // مسار حذف الغرض: http://localhost:5000/api/items/delete/:id
 router.delete('/delete/:id', auth, deleteItem);
 

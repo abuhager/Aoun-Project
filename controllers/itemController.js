@@ -1,15 +1,16 @@
 const Item = require('../models/Item');
 const User = require('../models/User');
 const cloudinary = require('cloudinary').v2;
+
 cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
     api_key: process.env.CLOUDINARY_API_KEY,
     api_secret: process.env.CLOUDINARY_API_SECRET
 });
-// 🟢 تأكد إنك تعدل المسار حسب وين حطيت ملف الإيميل عندك
+
 const sendEmail = require('../utils/sendEmail'); 
 
-// 1. جلب كل التبرعات (لصفحة Browse)
+// 1. جلب كل التبرعات
 exports.getItems = async (req, res) => {
     try {
         const { category, location } = req.query;
@@ -28,7 +29,7 @@ exports.getItems = async (req, res) => {
     }
 };
 
-// 2. جلب أغراضي الشخصية (للـ Dashboard)
+// 2. جلب أغراضي الشخصية
 exports.getMyItems = async (req, res) => {
     try {
         const [user, myDonationsDocs, myRequestsDocs] = await Promise.all([
@@ -60,12 +61,12 @@ exports.getItemById = async (req, res) => {
     }
 };
 
+// 4. إضافة غرض جديد
 exports.createItem = async (req, res) => {
     try {
         const { title, description, category, location, condition } = req.body;
         let imageUrl = '';
 
-        // 🟢 الرفع اليدوي لـ Cloudinary من الـ Buffer
         if (req.file) {
             const uploadPromise = new Promise((resolve, reject) => {
                 const stream = cloudinary.uploader.upload_stream(
@@ -75,7 +76,7 @@ exports.createItem = async (req, res) => {
                         else reject(error);
                     }
                 );
-                stream.end(req.file.buffer); // نرسل ملف الصورة للسيرفر
+                stream.end(req.file.buffer); 
             });
             imageUrl = await uploadPromise;
         }
@@ -89,12 +90,12 @@ exports.createItem = async (req, res) => {
         await newItem.save();
         res.status(201).json({ msg: 'تم إضافة التبرع بنجاح 🎁', item: newItem });
     } catch (err) {
-        console.error("❌ الخطأ الحقيقي هون يا أدهم:", err.message);
+        console.error("❌ الخطأ الحقيقي هون:", err.message);
         res.status(500).json({ msg: 'فشل في الإضافة، شيك على الـ Logs', error: err.message });
     }
 };
 
-// 5. حجز غرض (Booking + Waitlist Logic + Emails) 🚀✉️
+// 5. حجز غرض
 exports.bookItem = async (req, res) => {
     try {
         const item = await Item.findById(req.params.id);
@@ -104,7 +105,6 @@ exports.bookItem = async (req, res) => {
             return res.status(400).json({ msg: 'لا يمكنك حجز غرض قمت بتبرعه بنفسك' });
         }
 
-        // 🛡️ التعديل الجديد: فحص إجبارية التقييم
         const unratedItem = await Item.findOne({
             bookedBy: req.user.id,
             status: 'تم التسليم',
@@ -119,29 +119,23 @@ exports.bookItem = async (req, res) => {
 
         const bookerUser = await User.findById(req.user.id);
 
-        // التأكد من توفر الكوتا قبل أي إجراء
         if (bookerUser.quota <= 0) {
             return res.status(400).json({ msg: 'لقد استنفدت حصتك الشهرية من الحجوزات ⚠️' });
         }
 
-        // الحالة أ: الغرض متاح تماماً
         if (item.status === 'متاح') {
             const otp = Math.floor(1000 + Math.random() * 9000).toString();
             
-            // تحديث حالة الغرض
             item.status = 'محجوز';
             item.bookedBy = req.user.id;
             item.deliveryOtp = otp; 
             
-            // خصم نقطة من حصة المستخدم
             bookerUser.quota -= 1;
             
-            // حفظ التغييرات للمستخدم والغرض
             await Promise.all([item.save(), bookerUser.save()]);
 
             const donorUser = await User.findById(item.donor);
 
-            // إرسال الإيميلات بالخلفية
             sendEmail({
                 email: bookerUser.email,
                 subject: `تأكيد حجز: ${item.title} 🎁`,
@@ -157,7 +151,6 @@ exports.bookItem = async (req, res) => {
             return res.json({ msg: `تم حجز الغرض بنجاح! رمز الاستلام: ${otp} 🔐`, item });
         } 
         
-        // الحالة ب: الغرض محجوز -> دخول قائمة الانتظار
         const alreadyInWaitlist = item.waitlist.some(wait => wait.user.toString() === req.user.id);
         if (alreadyInWaitlist) return res.status(400).json({ msg: 'أنت مسجل بالفعل في قائمة الانتظار' });
         if (item.bookedBy?.toString() === req.user.id) return res.status(400).json({ msg: 'أنت من يحجز هذا الغرض حالياً' });
@@ -165,7 +158,6 @@ exports.bookItem = async (req, res) => {
         item.waitlist.push({ user: req.user.id });
         await item.save();
 
-        // إيميل الانضمام لقائمة الانتظار
         sendEmail({
             email: bookerUser.email,
             subject: `قائمة الانتظار: ${item.title} 🕒`,
@@ -179,104 +171,118 @@ exports.bookItem = async (req, res) => {
     }
 };
 
-// 6. إلغاء الحجز والانسحاب من الطابور (Shift Logic + Emails) 🔄✉️
+// 6. إلغاء الحجز 
 exports.cancelBooking = async (req, res) => {
     try {
         const item = await Item.findById(req.params.id);
         if (!item) return res.status(404).json({ msg: 'الغرض غير موجود' });
 
-        const userId = req.user.id;
+        const userId = req.user.id.toString(); 
 
-        // الحالة الأولى: الشخص الأساسي هو اللي كنسل
+        // 1️⃣ حالة: المستخدم هو الحاجز الأساسي
         if (item.bookedBy && item.bookedBy.toString() === userId) {
+            console.log("✅ الحاجز الأساسي يلغي الحجز...");
             
-            // 🟢 جلب بيانات المتبرع والمستخدم الحالي
             const [donorUser, userWhoCancelled] = await Promise.all([
                 User.findById(item.donor),
                 User.findById(userId)
             ]);
 
-            // 🟢 إعادة نقطة الكوتا للشخص الذي ألغى حجزه
             if (userWhoCancelled) {
                 userWhoCancelled.quota += 1;
                 await userWhoCancelled.save();
             }
 
-            if (item.waitlist.length > 0) {
-                // سحب أول واحد من الطابور
+            if (item.waitlist && item.waitlist.length > 0) {
                 const nextInLine = item.waitlist.shift(); 
-                
-                // 🟢 التأكد من أن الشخص التالي في الطابور لديه حصة كافية
                 const luckyUser = await User.findById(nextInLine.user);
                 
                 if (luckyUser && luckyUser.quota > 0) {
                     const newOtp = Math.floor(1000 + Math.random() * 9000).toString();
-                    
-                    item.bookedBy = nextInLine.user;
+                    item.bookedBy = luckyUser._id;
+                    item.status = 'محجوز';
                     item.deliveryOtp = newOtp;
-                    
-                    // 🟢 خصم حصة من المستخدم الجديد
                     luckyUser.quota -= 1;
                     
-                    await Promise.all([item.save(), luckyUser.save()]);
+                    await item.save();
+                    await luckyUser.save();
 
-                    // إرسال الإيميلات
-                    sendEmail({
-                        email: luckyUser.email,
-                        subject: `أخبار رائعة! الغرض أصبح لك 🎉`,
-                        message: `<div dir="rtl">مرحباً <b>${luckyUser.name}</b>،<br><br>الشخص الذي قبلك ألغى حجزه، والغرض (<b>${item.title}</b>) أصبح لك الآن!<br><br>رمز الاستلام الخاص بك هو: <h2 style="color:#006155; letter-spacing:2px;">${newOtp}</h2>يرجى التواصل مع المتبرع في أقرب وقت لاستلام الغرض.</div>`
-                    }).catch(console.error);
-
-                    if (donorUser) {
-                        sendEmail({
-                            email: donorUser.email,
-                            subject: `تحديث بخصوص غرضك: ${item.title} 🔄`,
-                            message: `<div dir="rtl">مرحباً <b>${donorUser.name}</b>،<br><br>الشخص الذي حجز غرضك (${item.title}) قام بإلغاء حجزه.<br>وتم تمرير الغرض تلقائياً للمستلم الجديد: <b>${luckyUser.name}</b>.</div>`
-                        }).catch(console.error);
+                    // 🟢 إرسال الإيميلات للمستلم وللمتبرع بشكل منفصل
+                    console.log("📨 جاري إرسال الإيميلات...");
+                    
+                    try {
+                        await sendEmail({
+                            email: luckyUser.email,
+                            subject: `أخبار رائعة! الغرض أصبح لك 🎉`,
+                            message: `<div dir="rtl">مرحباً <b>${luckyUser.name}</b>،<br><br>الشخص الذي كان قبلك ألغى حجزه، والغرض (<b>${item.title}</b>) أصبح لك الآن!<br>رمز الاستلام الجديد: <h2 style="color:#006155;">${newOtp}</h2>يرجى التواصل مع المتبرع لتنسيق الاستلام.</div>`
+                        });
+                        console.log("✅ إيميل المستلم الجديد وصل بنجاح");
+                    } catch (err) {
+                        console.error("❌ إيميل المستلم فشل:", err.message);
                     }
 
-                    return res.json({ msg: 'تم إلغاء حجزك وتمرير الغرض للشخص التالي في الانتظار 🔄', item });
-                } else {
-                    // إذا الشخص التالي ما عنده كوتا، رجع الغرض متاح (أو يمكنك تطوير المنطق لتجربة الشخص اللي بعده)
-                    item.bookedBy = null;
-                    item.status = 'متاح';
-                    item.deliveryOtp = undefined;
-                    await item.save();
-                    return res.json({ msg: 'تم إلغاء حجزك بنجاح، والشخص التالي في الانتظار لم يمتلك حصة كافية، الغرض متاح الآن', item });
-                }
-            } else {
-                item.bookedBy = null;
-                item.status = 'متاح';
-                item.deliveryOtp = undefined; 
-                await item.save();
+                    if (donorUser) {
+                        try {
+                            await sendEmail({
+                                email: donorUser.email,
+                                subject: `تحديث بخصوص غرضك: ${item.title} 🔄`,
+                                message: `<div dir="rtl">مرحباً <b>${donorUser.name}</b>،<br><br>المستلم السابق ألغى حجزه، وتم تمرير الغرض تلقائياً للشخص التالي في الطابور: <b>${luckyUser.name}</b>.</div>`
+                            });
+                            console.log("✅ إيميل المتبرع وصل بنجاح");
+                        } catch (err) {
+                            console.error("❌ إيميل المتبرع فشل:", err.message);
+                        }
+                    }
 
-                if (donorUser) {
-                    sendEmail({
+                    return res.json({ msg: 'تم تمرير الغرض للشخص التالي 🔄', item });
+                }
+            }
+
+            // إذا ما في حد بالانتظار
+            item.bookedBy = null;
+            item.status = 'متاح';
+            item.deliveryOtp = undefined;
+            await item.save();
+            
+            if (donorUser) {
+                try {
+                    await sendEmail({
                         email: donorUser.email,
                         subject: `غرضك متاح من جديد 📢`,
                         message: `<div dir="rtl">مرحباً <b>${donorUser.name}</b>،<br><br>تم إلغاء الحجز، وعاد غرضك (<b>${item.title}</b>) متاحاً للجميع.</div>`
-                    }).catch(console.error);
+                    });
+                } catch (err) {
+                    console.error("❌ إيميل المتبرع (عودة للمتاح) فشل:", err.message);
                 }
-
-                return res.json({ msg: 'تم إلغاء حجزك بنجاح، الغرض متاح الآن للجميع', item });
             }
+            
+            return res.json({ msg: 'تم إلغاء الحجز، الغرض متاح الآن', item });
         }
 
-        // الحالة الثانية: شخص في الـ Waitlist قرر ينسحب
-        const waitIndex = item.waitlist.findIndex(w => w.user.toString() === userId);
-        if (waitIndex !== -1) {
-            item.waitlist.splice(waitIndex, 1);
+        // 2️⃣ حالة: الانسحاب من قائمة الانتظار
+        console.log("🔍 فحص قائمة الانتظار للانسحاب...");
+        const initialLength = item.waitlist.length;
+        
+        item.waitlist = item.waitlist.filter(w => {
+            if (!w.user) return false;
+            return w.user.toString() !== userId;
+        });
+
+        if (item.waitlist.length < initialLength) {
             await item.save();
+            console.log("✅ تم الانسحاب من الطابور بنجاح");
             return res.json({ msg: 'تم انسحابك من قائمة الانتظار بنجاح 🚶‍♂️', item });
         }
 
-        res.status(400).json({ msg: 'أنت لست الشخص الحاجز ولا في قائمة الانتظار' });
+        return res.status(400).json({ msg: 'أنت لست الشخص الحاجز ولا في قائمة الانتظار' });
+
     } catch (err) {
-        res.status(500).json({ msg: 'خطأ في السيرفر' });
+        console.error("🔥 كراش في cancelBooking:", err.message);
+        res.status(500).json({ msg: 'خطأ في السيرفر', error: err.message });
     }
 };
 
-// 7. إتمام التسليم (بالـ OTP)
+// 7. إتمام التسليم
 exports.completeDelivery = async (req, res) => {
     try {
         const { otp } = req.body; 
@@ -304,7 +310,7 @@ exports.completeDelivery = async (req, res) => {
     }
 };
 
-// 8. تقييم العملية وتحديث الـ Trust Score 🌟
+// 8. تقييم العملية
 exports.rateItem = async (req, res) => {
     try {
         const { rating } = req.body; 
@@ -333,7 +339,7 @@ exports.rateItem = async (req, res) => {
     }
 };
 
-// 9. التبليغ عن مستخدم 🛡️
+// 9. التبليغ عن مستخدم
 exports.reportUser = async (req, res) => {
     try {
         const { reportedUserId, reason } = req.body;
@@ -360,15 +366,45 @@ exports.reportUser = async (req, res) => {
 // 10. تعديل وحذف الأغراض
 exports.updateItem = async (req, res) => {
     try {
-        const item = await Item.findOneAndUpdate(
-            { _id: req.params.id, donor: req.user.id, status: 'متاح' },
-            { $set: req.body },
-            { new: true }
-        );
-        if (!item) return res.status(400).json({ msg: 'لا يمكن تعديل غرض محجوز أو لست صاحبه' });
-        res.json({ msg: 'تم التعديل بنجاح', item });
+        console.log("📦 البيانات الواصلة للتعديل (Body):", req.body);
+        console.log("🖼️ هل يوجد صورة جديدة؟", req.file ? "نعم" : "لا");
+
+        const { title, description, category, location, condition } = req.body;
+
+        let item = await Item.findOne({ _id: req.params.id, donor: req.user.id });
+
+        if (!item) {
+            return res.status(404).json({ msg: 'الغرض غير موجود أو لست صاحبه' });
+        }
+
+        if (req.file) {
+            const uploadPromise = new Promise((resolve, reject) => {
+                const stream = cloudinary.uploader.upload_stream(
+                    { folder: 'aoun_items' },
+                    (error, result) => {
+                        if (result) resolve(result.secure_url);
+                        else reject(error);
+                    }
+                );
+                stream.end(req.file.buffer);
+            });
+            item.imageUrl = await uploadPromise;
+        }
+
+        if (title) item.title = title;
+        if (description) item.description = description;
+        if (category) item.category = category;
+        if (location) item.location = location;
+        if (condition) item.condition = condition;
+
+        await item.save();
+        
+        console.log("✅ تم التعديل بنجاح في الداتا بيز!");
+        res.json({ msg: 'تم التعديل بنجاح ✨', item });
+
     } catch (err) {
-        res.status(500).json({ msg: 'خطأ في السيرفر' });
+        console.error("❌ خطأ التعديل في Render:", err.message);
+        res.status(500).json({ msg: 'فشل التعديل بالسيرفر', error: err.message });
     }
 };
 
