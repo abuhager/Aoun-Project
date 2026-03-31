@@ -6,8 +6,10 @@ const userSchema = new mongoose.Schema(
     email: { type: String, required: true, unique: true, trim: true },
     password: { type: String, required: true },
 phone: { type: String },
-reportsCount: { type: Number, default: 0 }, // عدد البلاغات اللي أكلها هاد الشخص
-isBanned: { type: Boolean, default: false }, // هل الحساب محظور؟
+reportedBy: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'user'
+}],isBanned: { type: Boolean, default: false }, // هل الحساب محظور؟
 resetPasswordToken: String,
   resetPasswordExpire: Date,
       role: {

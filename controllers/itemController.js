@@ -368,26 +368,44 @@ exports.rateItem = async (req, res) => {
 exports.reportUser = async (req, res) => {
     try {
         const { reportedUserId, reason } = req.body;
+        const reporterId = req.user.id; // الشخص اللي كبس زر البلاغ
 
-        if (req.user.id === reportedUserId) return res.status(400).json({ msg: 'لا يمكنك التبليغ عن نفسك' });
+        if (reporterId === reportedUserId) {
+            return res.status(400).json({ msg: 'لا يمكنك التبليغ عن نفسك' });
+        }
 
         const user = await User.findById(reportedUserId);
         if (!user) return res.status(404).json({ msg: 'المستخدم غير موجود' });
 
-        user.reportsCount = (user.reportsCount || 0) + 1;
+        // تهيئة المصفوفة إذا كانت مش موجودة
+        if (!user.reportedBy) user.reportedBy = [];
 
-        if (user.reportsCount >= 3) {
-            user.trustScore = Math.max(0, user.trustScore - 40);
-            if (user.reportsCount >= 6) user.isBanned = true;
+        // 🛑 1. منع السبام: هل هذا الشخص مبلغ عنه من قبل؟
+        if (user.reportedBy.includes(reporterId)) {
+            return res.status(400).json({ msg: 'لقد قمت بتقديم بلاغ ضد هذا المستخدم مسبقاً 🚫' });
+        }
+
+        // إضافة البلاغ الجديد
+        user.reportedBy.push(reporterId);
+        const totalReports = user.reportedBy.length; // عدد البلاغات الفعلي
+
+        // ⚖️ 2. المنطق العادل للخصم (خصم مرة واحدة فقط عند الوصول للرقم بالضبط)
+        if (totalReports === 3) {
+            // خصم 40 نقطة فقط عند البلاغ الثالث بالضبط
+            user.trustScore = Math.max(0, (user.trustScore || 85) - 40);
+        } else if (totalReports === 6) {
+            // حظر نهائي عند البلاغ السادس بالضبط
+            user.isBanned = true;
         }
 
         await user.save();
-        res.json({ msg: 'تم تقديم البلاغ بنجاح 🛡️' });
+        res.json({ msg: 'تم تقديم البلاغ بنجاح، شكراً لمساعدتنا في الحفاظ على مجتمع "عون" 🛡️' });
+
     } catch (err) {
+        console.error("❌ خطأ في فنكشن التبليغ:", err.message);
         res.status(500).json({ msg: 'خطأ في السيرفر' });
     }
 };
-
 // 10. تعديل وحذف الأغراض
 exports.updateItem = async (req, res) => {
     try {
