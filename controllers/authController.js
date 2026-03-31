@@ -229,8 +229,8 @@ exports.forgotPassword = async (req, res) => {
 
         // إنشاء الرابط اللي رح يكبس عليه اليوزر (رابط الفرونت إند)
         // 🟢 تأكد إن البورت تبع الفرونت إند 3000
-        const resetUrl = `http://localhost:3000/reset-password/${resetToken}`;
-
+const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+const resetUrl = `${clientUrl}/reset-password/${resetToken}`;
         const message = `
             <div dir="rtl">
                 <h2>طلب استعادة كلمة المرور</h2>
