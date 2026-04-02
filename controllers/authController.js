@@ -1,30 +1,28 @@
 const User = require('../models/User');
 const Item = require('../models/Item');
 const bcrypt = require('bcryptjs');
-const crypto = require('crypto'); // للتعامل مع التوكنات الخاصة بإعادة تعيين كلمة المرور
+const crypto = require('crypto'); 
 const jwt = require('jsonwebtoken');
-const sendEmail = require('../utils/sendEmail'); // تأكد من المسار حسب ملفاتك
+const sendEmail = require('../utils/sendEmail'); 
+
 // 1. دالة التسجيل (Register)
 exports.register = async (req, res) => {
     try {
-const { name, email, password, phone } = req.body;
-        // 1. التأكد من وجود المستخدم مسبقاً
+        const { name, email, password, phone } = req.body;
+        
         let user = await User.findOne({ email });
 
         if (user) {
-            // الحالة الذكية: إذا الحساب موجود بس مش مفعل
             if (!user.isVerified) {
-                // توليد كود تفعيل جديد
                 const newOtp = Math.floor(1000 + Math.random() * 9000).toString();
                 user.verificationOtp = newOtp;
                 
-                // تحديث الاسم والباسورد في حال قرر يغيرهم وهو لسا ما فعل
                 const hashedPassword = await bcrypt.hash(password, 10);
                 user.name = name;
+                user.password = hashedPassword;
 
                 await user.save();
 
-                // إرسال إيميل بالكود الجديد (استخدام نفس القالب الفخم)
                 const resendMessage = `
                     <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; direction: rtl;">
                         <h2 style="color: #006155;">أهلاً بك مجدداً في عون يا ${name}! 🎓</h2>
@@ -49,11 +47,9 @@ const { name, email, password, phone } = req.body;
                 });
             }
 
-            // إذا الحساب موجود ومفعل فعلاً
             return res.status(400).json({ msg: 'هذا الحساب موجود مسبقاً ومفعل بالفعل، يمكنك تسجيل الدخول.' });
         }
 
-        // 2. إنشاء مستخدم جديد (في حال لم يكن الإيميل موجوداً أصلاً)
         const isVerifiedStudent = email.endsWith('.edu') || email.endsWith('.edu.jo');
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
@@ -88,12 +84,9 @@ const { name, email, password, phone } = req.body;
             message: message
         });
 
-        const payload = { user: { id: user.id, role: user.role } };
-        const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
-
+        // 🛑 التعديل الأمني: إزالة التوكن من عملية التسجيل لإجبار المستخدم على تفعيل الحساب
         res.status(201).json({ 
             msg: 'تم إنشاء الحساب بنجاح، يرجى تفقد بريدك الإلكتروني لتفعيل الحساب ✉️', 
-            token, 
             user: { 
                 name: user.name, 
                 email: user.email, 
@@ -107,28 +100,25 @@ const { name, email, password, phone } = req.body;
         res.status(500).send('خطأ في السيرفر');
     }
 };
+
 // دالة تأكيد البريد الإلكتروني (OTP)
 exports.verifyEmail = async (req, res) => {
     try {
         const { email, otp } = req.body;
 
-        // 1. ندور على المستخدم
         const user = await User.findOne({ email });
         if (!user) {
             return res.status(404).json({ msg: 'المستخدم غير موجود 🛑' });
         }
 
-        // 2. هل الحساب مفعل أصلاً؟
         if (user.isVerified) {
             return res.status(400).json({ msg: 'هذا الحساب مفعل مسبقاً، يمكنك تسجيل الدخول مباشرة ✅' });
         }
 
-        // 3. مقارنة الكود (OTP)
         if (user.verificationOtp !== otp) {
             return res.status(400).json({ msg: 'رمز التحقق غير صحيح ❌' });
         }
 
-        // 4. مبروك! الكود صحيح، بنفعل الحساب وبنمسح الكود للأمان
         user.isVerified = true;
         user.verificationOtp = undefined;
         await user.save();
@@ -140,31 +130,29 @@ exports.verifyEmail = async (req, res) => {
         res.status(500).send('خطأ في السيرفر أثناء تفعيل الحساب');
     }
 };
+
 // 2. دالة تسجيل الدخول (Login)
 exports.login = async (req, res) => {
     try {
         const { email, password } = req.body;
 
-        // البحث عن المستخدم
         let user = await User.findOne({ email });
         if (!user) return res.status(400).json({ msg: 'البريد الإلكتروني غير صحيح' });
-    if (user.isBanned) {
-    return res.status(403).json({ msg: 'هذا الحساب محظور بسبب مخالفة معايير مجتمع عون 🛑' });
-    }
-        // مطابقة الباسورد
+        if (user.isBanned) {
+            return res.status(403).json({ msg: 'هذا الحساب محظور بسبب مخالفة معايير مجتمع عون 🛑' });
+        }
+
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) return res.status(400).json({ msg: 'كلمة الدخول غير صحيحة' });
 
-        // 🟢 الإضافة الجديدة: منع الدخول إذا الحساب غير مفعل
         if (!user.isVerified) {
             return res.status(403).json({ 
                 msg: 'حسابك غير مفعل! يرجى تفعيل حسابك باستخدام الرمز (OTP) المرسل إلى بريدك الإلكتروني ✉️',
-                needsVerification: true, // هاي الإشارة رح نستخدمها بالفرونت إند عشان نحوله لصفحة التفعيل
-                email: user.email // بعثنا الإيميل عشان الفرونت إند يظل متذكره
+                needsVerification: true,
+                email: user.email 
             });
         }
 
-        // توليد التوكن (JWT)
         const payload = { user: { id: user.id, role: user.role } };
         const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
 
@@ -176,7 +164,7 @@ exports.login = async (req, res) => {
                 email: user.email, 
                 isVerifiedStudent: user.isVerifiedStudent, 
                 role: user.role,
-                isVerified: user.isVerified // ضفناها هون للاحتياط
+                isVerified: user.isVerified 
             } 
         });
     } catch (err) {
@@ -184,11 +172,11 @@ exports.login = async (req, res) => {
         res.status(500).send('خطأ في السيرفر');
     }
 };
+
 exports.getUserProfile = async (req, res) => {
    try {
-        // تشغيل كل الاستعلامات بالتوازي (Concurrent)
         const [user, allDonations, completedRequests, totalRatings] = await Promise.all([
-            User.findById(req.params.id).select('-password -__v'),
+            User.findById(req.params.id).select('-password -__v'), // 🟢 select(-password) بتجيب الـ isVerifiedStudent تلقائياً
             Item.find({ donor: req.params.id }).populate('bookedBy', 'name avatar').sort({ createdAt: -1 }),
             Item.find({ bookedBy: req.params.id, status: 'تم التسليم' }).populate('donor', 'name avatar').sort({ createdAt: -1 }),
             Item.countDocuments({ donor: req.params.id, isRated: true })
@@ -210,6 +198,7 @@ exports.getUserProfile = async (req, res) => {
         res.status(500).send('خطأ في السيرفر');
     }
 };
+
 // 1️⃣ طلب رابط استرجاع كلمة المرور (نسيت كلمة المرور)
 exports.forgotPassword = async (req, res) => {
     try {
@@ -218,19 +207,15 @@ exports.forgotPassword = async (req, res) => {
             return res.status(404).json({ msg: 'لا يوجد حساب مسجل بهذا الإيميل' });
         }
 
-        // توليد رمز عشوائي آمن
         const resetToken = crypto.randomBytes(20).toString('hex');
-
-        // تشفير الرمز وتخزينه بالداتا بيس (للحماية)
         user.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
-        user.resetPasswordExpire = Date.now() + 15 * 60 * 1000; // الرمز صالح لمدة 15 دقيقة فقط
+        user.resetPasswordExpire = Date.now() + 15 * 60 * 1000; 
 
         await user.save();
 
-        // إنشاء الرابط اللي رح يكبس عليه اليوزر (رابط الفرونت إند)
-        // 🟢 تأكد إن البورت تبع الفرونت إند 3000
-const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
-const resetUrl = `${clientUrl}/reset-password/${resetToken}`;
+        const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+        const resetUrl = `${clientUrl}/reset-password/${resetToken}`;
+        
         const message = `
             <div dir="rtl">
                 <h2>طلب استعادة كلمة المرور</h2>
@@ -250,7 +235,6 @@ const resetUrl = `${clientUrl}/reset-password/${resetToken}`;
 
             res.status(200).json({ msg: 'تم إرسال رابط استعادة كلمة المرور إلى بريدك الإلكتروني' });
         } catch (err) {
-            // لو فشل الإيميل، بنظف الداتا بيس
             user.resetPasswordToken = undefined;
             user.resetPasswordExpire = undefined;
             await user.save();
@@ -264,30 +248,25 @@ const resetUrl = `${clientUrl}/reset-password/${resetToken}`;
 // 2️⃣ تعيين كلمة المرور الجديدة بعد الضغط على الرابط
 exports.resetPassword = async (req, res) => {
     try {
-        // تشفير الرمز اللي إجى من الرابط عشان نقارنه باللي تخزن بالداتا بيس
         const resetPasswordToken = crypto.createHash('sha256').update(req.params.token).digest('hex');
 
-        // 🟢 ضفنا .select('+password') عشان نجيب الباسوورد القديم من الداتا بيس ونقارنه
         const user = await User.findOne({
             resetPasswordToken,
-            resetPasswordExpire: { $gt: Date.now() } // التأكد إن الرمز لسا ما انتهى وقته
+            resetPasswordExpire: { $gt: Date.now() } 
         }).select('+password'); 
 
         if (!user) {
             return res.status(400).json({ msg: 'الرابط غير صالح أو انتهت صلاحيته ❌' });
         }
 
-        // 🟢 اللمسة الأمنية (Security Check): نتأكد إن الباسوورد الجديد مش نفس القديم
         const isSamePassword = await bcrypt.compare(req.body.password, user.password);
         if (isSamePassword) {
             return res.status(400).json({ msg: 'يرجى اختيار كلمة مرور جديدة تختلف عن الحالية ❌' });
         }
 
-        // تشفير كلمة المرور الجديدة
         const salt = await bcrypt.genSalt(10);
         user.password = await bcrypt.hash(req.body.password, salt);
 
-        // تنظيف حقول الاسترجاع لأننا خلصنا منها
         user.resetPasswordToken = undefined;
         user.resetPasswordExpire = undefined;
 

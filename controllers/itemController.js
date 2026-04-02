@@ -20,7 +20,7 @@ exports.getItems = async (req, res) => {
         if (location) query.location = location;
 
         const items = await Item.find(query)
-            .populate('donor', 'name trustScore avatar') 
+            .populate('donor', 'name trustScore avatar isVerifiedStudent') // 🟢 تم إضافة isVerifiedStudent هنا
             .sort({ createdAt: -1 });
 
         res.json(items);
@@ -33,9 +33,10 @@ exports.getItems = async (req, res) => {
 exports.getMyItems = async (req, res) => {
     try {
         const [user, myDonationsDocs, myRequestsDocs] = await Promise.all([
-            User.findById(req.user.id).select('name email trustScore phone quota lean'),
-            Item.find({ donor: req.user.id }).populate('bookedBy', 'name avatar trustScore email phone').select('+deliveryOtp').sort({ createdAt: -1 }).lean(),
-            Item.find({ bookedBy: req.user.id }).populate('donor', 'name avatar trustScore email phone').select('+deliveryOtp').sort({ createdAt: -1 }).lean()
+            // 🟢 تم إخراج كلمة lean من الـ select وتطبيقها كفنكشن، وتم إضافة isVerifiedStudent
+            User.findById(req.user.id).select('name email trustScore phone quota isVerifiedStudent').lean(),
+            Item.find({ donor: req.user.id }).populate('bookedBy', 'name avatar trustScore email phone isVerifiedStudent').select('+deliveryOtp').sort({ createdAt: -1 }).lean(),
+            Item.find({ bookedBy: req.user.id }).populate('donor', 'name avatar trustScore email phone isVerifiedStudent').select('+deliveryOtp').sort({ createdAt: -1 }).lean()
         ]);
 
         const myDonations = myDonationsDocs.map(item => ({ ...item, otp: item.deliveryOtp }));
@@ -51,8 +52,8 @@ exports.getMyItems = async (req, res) => {
 exports.getItemById = async (req, res) => {
     try {
         const item = await Item.findById(req.params.id)
-            .populate('donor', 'name phone trustScore avatar location isVerified')
-            .populate('waitlist.user', 'name avatar');
+            .populate('donor', 'name phone trustScore avatar location isVerified isVerifiedStudent') // 🟢 تمت الإضافة
+            .populate('waitlist.user', 'name avatar isVerifiedStudent'); // 🟢 تمت الإضافة
 
         if (!item) return res.status(404).json({ msg: 'هذا الغرض غير موجود' });
         res.json(item);
@@ -179,7 +180,6 @@ exports.cancelBooking = async (req, res) => {
 
         const userId = req.user.id.toString(); 
 
-        // 1️⃣ حالة: المستخدم هو الحاجز الأساسي
         if (item.bookedBy && item.bookedBy.toString() === userId) {
             console.log("✅ الحاجز الأساسي يلغي الحجز...");
             
@@ -207,7 +207,6 @@ exports.cancelBooking = async (req, res) => {
                     await item.save();
                     await luckyUser.save();
 
-                    // 🟢 إرسال الإيميلات للمستلم وللمتبرع بشكل منفصل
                     console.log("📨 جاري إرسال الإيميلات...");
                     
                     try {
@@ -238,7 +237,6 @@ exports.cancelBooking = async (req, res) => {
                 }
             }
 
-            // إذا ما في حد بالانتظار
             item.bookedBy = null;
             item.status = 'متاح';
             item.deliveryOtp = undefined;
@@ -259,7 +257,6 @@ exports.cancelBooking = async (req, res) => {
             return res.json({ msg: 'تم إلغاء الحجز، الغرض متاح الآن', item });
         }
 
-        // 2️⃣ حالة: الانسحاب من قائمة الانتظار
         console.log("🔍 فحص قائمة الانتظار للانسحاب...");
         const initialLength = item.waitlist.length;
         
@@ -283,7 +280,6 @@ exports.cancelBooking = async (req, res) => {
 };
 
 // 7. إتمام التسليم (بالـ OTP) مع إرسال إيميلات الشكر والتقييم 🎁
-// استبدل فنكشن completeDelivery بهاد الكود المصفح
 exports.completeDelivery = async (req, res) => {
     try {
         const { otp } = req.body; 
@@ -297,15 +293,12 @@ exports.completeDelivery = async (req, res) => {
             return res.status(400).json({ msg: 'الرمز غير صحيح ❌' });
         }
 
-        // 1. تحديث الداتا بيز فوراً
         item.status = 'تم التسليم';
         item.deliveryOtp = undefined; 
         await item.save();
 
-        // 2. إرسال الرد للفرونت إند (عشان المستخدم ما يستنى)
         res.json({ msg: 'تم تسليم الغرض بنجاح! 💚', item });
 
-        // 3. 🟢 إرسال الإيميلات بالخلفية (بدون await للرد النهائي)
         console.log("📨 بدأت عملية إرسال الإيميلات بالخلفية...");
         
         const [donorUser, receiverUser] = await Promise.all([
@@ -317,7 +310,7 @@ exports.completeDelivery = async (req, res) => {
             sendEmail({
                 email: receiverUser.email,
                 subject: `تم استلام الغرض بنجاح 🎁`,
-                message: `<div dir="rtl">...</div>`
+                message: `<div dir="rtl">مرحباً <b>${receiverUser.name}</b>،<br><br>تم تأكيد استلامك للغرض (<b>${item.title}</b>) بنجاح.<br><br>نرجو منك الدخول إلى حسابك وتقييم المتبرع بكلمة شكر، لأن تقييمك هو ما يشجع الآخرين على العطاء ويسمح لك بطلب أغراض جديدة! 💚</div>`
             }).catch(err => console.error("❌ إيميل المستلم فشل:", err.message));
         }
 
@@ -325,7 +318,7 @@ exports.completeDelivery = async (req, res) => {
             sendEmail({
                 email: donorUser.email,
                 subject: `شكراً لعطائك! تم التسليم 🌟`,
-                message: `<div dir="rtl">...</div>`
+                message: `<div dir="rtl">مرحباً <b>${donorUser.name}</b>،<br><br>تم إتمام تسليم الغرض (<b>${item.title}</b>) بنجاح باستخدام الرمز الصحيح.<br><br>في ميزان حسناتك، وشكراً لأنك جزء أساسي من مشروع "عون"! 💚</div>`
             }).catch(err => console.error("❌ إيميل المتبرع فشل:", err.message));
         }
 
@@ -364,7 +357,6 @@ exports.rateItem = async (req, res) => {
     }
 };
 
-// 9. التبليغ عن مستخدم
 // 9. التبليغ عن مستخدم (نظام العقوبات المتدرج العادل 🛡️)
 exports.reportUser = async (req, res) => {
     try {
@@ -378,24 +370,20 @@ exports.reportUser = async (req, res) => {
         const user = await User.findById(reportedUserId);
         if (!user) return res.status(404).json({ msg: 'المستخدم غير موجود' });
 
-        // تهيئة المصفوفة إذا كانت مش موجودة
         if (!user.reportedBy) user.reportedBy = [];
 
-        // 🛑 منع السبام: فحص إذا كان المستخدم مبلغ عنه من نفس الشخص
         if (user.reportedBy.includes(reporterId)) {
             return res.status(400).json({ msg: 'لقد قمت بتقديم بلاغ ضد هذا المستخدم مسبقاً 🚫' });
         }
 
-        // تسجيل البلاغ الجديد
         user.reportedBy.push(reporterId);
         const totalReports = user.reportedBy.length; 
 
-        // ⚖️ تطبيق الخصم المتدرج
         let pointsToDeduct = 0;
 
         switch (totalReports) {
             case 1:
-                pointsToDeduct = 0; // إنذار صامت
+                pointsToDeduct = 0; 
                 break;
             case 2:
                 pointsToDeduct = 5;
@@ -407,17 +395,16 @@ exports.reportUser = async (req, res) => {
                 pointsToDeduct = 15;
                 break;
             case 5:
-                pointsToDeduct = 20; // الضربة الأخيرة
+                pointsToDeduct = 20; 
                 break;
             case 6:
-                user.isBanned = true; // طرد نهائي
+                user.isBanned = true; 
                 break;
             default:
                 pointsToDeduct = 0; 
                 break;
         }
 
-        // تطبيق الخصم إذا كان في نقاط للخصم، مع التأكد إن الثقة ما تنزل تحت الصفر
         if (pointsToDeduct > 0 && !user.isBanned) {
             user.trustScore = Math.max(0, (user.trustScore || 85) - pointsToDeduct);
         }
@@ -430,6 +417,7 @@ exports.reportUser = async (req, res) => {
         res.status(500).json({ msg: 'خطأ في السيرفر' });
     }
 };
+
 // 10. تعديل وحذف الأغراض
 exports.updateItem = async (req, res) => {
     try {
