@@ -52,8 +52,7 @@ exports.getMyItems = async (req, res) => {
 exports.getItemById = async (req, res) => {
     try {
         const item = await Item.findById(req.params.id)
-            .populate('donor', 'name phone trustScore avatar location isVerified isVerifiedStudent') // 🟢 تمت الإضافة
-            .populate('waitlist.user', 'name avatar isVerifiedStudent'); // 🟢 تمت الإضافة
+            .populate('donor', 'name phone trustScore avatar  isVerified isVerifiedStudent') // 🟢 تمت الإضافة
 
         if (!item) return res.status(404).json({ msg: 'هذا الغرض غير موجود' });
         res.json(item);
