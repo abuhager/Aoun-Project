@@ -20,8 +20,8 @@ exports.getItems = async (req, res) => {
         if (location) query.location = location;
 
         const items = await Item.find(query)
-            .populate('donor', 'name trustScore avatar isVerifiedStudent') // 🟢 تم إضافة isVerifiedStudent هنا
-            .sort({ createdAt: -1 });
+            .sort({ createdAt: -1 })
+            .lean();
 
         res.json(items);
     } catch (err) {
