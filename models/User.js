@@ -3,16 +3,19 @@ const mongoose = require("mongoose");
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
-email: { type: String, required: true, unique: true, index: true },
+    email: { type: String, required: true, unique: true, index: true },
     password: { type: String, required: true },
-phone: { type: String },
-reportedBy: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'user'
-}],isBanned: { type: Boolean, default: false }, // هل الحساب محظور؟
-resetPasswordToken: String,
-  resetPasswordExpire: Date,
-      role: {
+    phone: { type: String },
+    reportedBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "user",
+      },
+    ],
+    isBanned: { type: Boolean, default: false }, // هل الحساب محظور؟
+    resetPasswordToken: String,
+    resetPasswordExpire: Date,
+    role: {
       type: String,
       default: "user",
       enum: ["user", "admin", "super_admin"],
@@ -26,10 +29,9 @@ resetPasswordToken: String,
     },
     isVerifiedStudent: { type: Boolean, default: false }, // شارة الطالب الموثق
     trustScore: { type: Number, default: 70 }, // نقاط الثقة تبدأ من 100
-    quota: { type: Number, default: 3 }, // الحصة الأسبوعية (مثلاً 3 أغراض)
+    quota: { type: Number, default: 2 }, // الحصة الأسبوعية (مثلاً 3 أغراض)
   },
-  
-  
+
   { timestamps: true },
 );
 
