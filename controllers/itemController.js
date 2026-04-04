@@ -308,37 +308,73 @@ exports.rateItem = async (req, res) => {
     }
 };
 
-// 9. التبليغ
+// 9. التبليغ عن مستخدم (نظام العقوبات والإشعارات المتدرج 🛡️)
 exports.reportUser = async (req, res) => {
     try {
         const { reportedUserId, reason } = req.body;
         const reporterId = req.user.id; 
 
+        if (reporterId === reportedUserId) {
+            return res.status(400).json({ msg: 'لا يمكنك التبليغ عن نفسك' });
+        }
+
         const user = await User.findById(reportedUserId);
         if (!user) return res.status(404).json({ msg: 'المستخدم غير موجود' });
 
         if (!user.reportedBy) user.reportedBy = [];
+
         if (user.reportedBy.includes(reporterId)) {
-            return res.status(400).json({ msg: 'لقد بلغت عن هذا المستخدم مسبقاً' });
+            return res.status(400).json({ msg: 'لقد قمت بتقديم بلاغ ضد هذا المستخدم مسبقاً 🚫' });
         }
 
         user.reportedBy.push(reporterId);
         const totalReports = user.reportedBy.length; 
 
-        // نظام عقوبات التبليغ
+        let pointsToDeduct = 0;
+
+        // نظام العقوبات
         if (totalReports >= 6) {
             user.isBanned = true;
         } else if (totalReports >= 2) {
-            user.trustScore = Math.max(0, (user.trustScore || 85) - (totalReports * 5));
+            pointsToDeduct = totalReports * 5; // خصم متصاعد
+            user.trustScore = Math.max(0, (user.trustScore || 85) - pointsToDeduct);
         }
 
         await user.save();
-        res.json({ msg: 'تم تقديم البلاغ بنجاح 🛡️' });
+
+        // 🟢 الإضافة الجديدة: إرسال إيميل تحذيري للمستخدم المُبلَّغ عنه
+        try {
+            let emailSubject = '';
+            let emailMessage = '';
+
+            if (user.isBanned) {
+                emailSubject = 'إشعار حظر الحساب - منصة عون 🛑';
+                emailMessage = `<div dir="rtl">مرحباً <b>${user.name}</b>،<br><br>نؤسفنا إبلاغك بأنه تم حظر حسابك في منصة عون بسبب تلقي عدد كبير من البلاغات (6 بلاغات) ومخالفة معايير المجتمع.<br>إذا كنت تعتقد أن هذا خطأ، يرجى التواصل مع الدعم الفني.</div>`;
+            } else if (totalReports === 1) {
+                emailSubject = 'تنبيه: تلقينا بلاغاً بشأن حسابك ⚠️';
+                emailMessage = `<div dir="rtl">مرحباً <b>${user.name}</b>،<br><br>نود إعلامك بأننا تلقينا بلاغاً من أحد المستخدمين بشأن تجربته معك.<br>هذا مجرد تنبيه أولي، ولكن نرجو منك الالتزام بمعايير الثقة في منصة عون لتجنب خصم نقاط الثقة من حسابك.</div>`;
+            } else {
+                emailSubject = 'تحذير هام: انخفاض نقاط الثقة 📉';
+                emailMessage = `<div dir="rtl">مرحباً <b>${user.name}</b>،<br><br>تلقينا بلاغاً جديداً بشأن حسابك (إجمالي البلاغات: ${totalReports}).<br>بناءً على سياسة المنصة، تم خصم نقاط من "مؤشر الثقة" الخاص بك. انخفاض مؤشر الثقة قد يؤثر على فرصك في حجز الأغراض مستقبلاً، واستمرار البلاغات سيؤدي إلى حظر الحساب.</div>`;
+            }
+
+            await sendEmail({
+                email: user.email,
+                subject: emailSubject,
+                message: emailMessage
+            });
+            console.log(`📨 تم إرسال إيميل تحذير للمستخدم: ${user.email}`);
+        } catch (emailErr) {
+            console.error("❌ فشل إرسال إيميل التحذير:", emailErr.message);
+        }
+
+        res.json({ msg: 'تم تقديم البلاغ بنجاح، شكراً لمساعدتنا في الحفاظ على مجتمع "عون" 🛡️' });
+
     } catch (err) {
+        console.error("❌ خطأ في فنكشن التبليغ:", err.message);
         res.status(500).json({ msg: 'خطأ في السيرفر' });
     }
 };
-
 // 10. التعديل والحذف
 exports.updateItem = async (req, res) => {
     try {
