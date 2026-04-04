@@ -8,22 +8,27 @@ const app = express();
 
 // 🟢 1. إعداد الـ CORS بشكل احترافي لدعم اللوكال والموقع المرفوع
 const allowedOrigins = [
-    'http://localhost:3000', // 💻 عشان يشتغل عندك وإنت بتبرمج
-    'https://aoun-project-front-end-dk76.vercel.app' // 🌐 عشان يشتغل للناس على Vercel
+    'http://localhost:3000', 
+    'https://aoun-project-front-end-dk76.vercel.app',
+    'https://aoun-project-front-end.vercel.app'
 ];
 
 app.use(cors({
     origin: function (origin, callback) {
-        // السماح للطلبات اللي بدون origin (زي Postman) أو اللي موجودة بالقائمة
-        if (!origin || allowedOrigins.includes(origin)) {
+        // فحص ذكي: يسمح للوكال، القائمة، وأي رابط فرعي لمشروعك على فيرسيل
+        const isVercel = origin && origin.includes('aoun-project') && origin.endsWith('.vercel.app');
+        
+        if (!origin || allowedOrigins.includes(origin) || isVercel) {
             callback(null, true);
         } else {
+            // طباعة الرابط المرفوض عشان تعرفه من الـ Logs
+            console.log("🚫 CORS Blocked for origin:", origin);
             callback(new Error('Not allowed by CORS'));
         }
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token'],
-    credentials: true // مهم جداً عشان الـ Cookies والـ Tokens
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token', 'Accept'],
+    credentials: true 
 }));
 
 app.use(express.json({ limit: '10mb' }));
