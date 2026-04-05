@@ -12,6 +12,8 @@ const userSchema = new mongoose.Schema(
         ref: "user",
       },
     ],
+    avatar: { type: String, default: '' },
+
     isBanned: { type: Boolean, default: false }, // هل الحساب محظور؟
     resetPasswordToken: String,
     resetPasswordExpire: Date,
@@ -24,6 +26,7 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false, // أول ما يسجل بكون حسابه مش مفعل
     },
+
     verificationOtp: {
       type: String, // هون بنخزن كود التفعيل المكون من 4 أرقام
     },
