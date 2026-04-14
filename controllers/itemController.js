@@ -4,6 +4,7 @@ const User       = require('../models/User');
 const cloudinary = require('cloudinary').v2;
 const sendEmail  = require('../utils/sendEmail');
 const itemService = require('../services/itemService');
+const { validateCreateItem } = require('../dtos/itemDto');
 cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
     api_key:    process.env.CLOUDINARY_API_KEY,
@@ -109,18 +110,22 @@ exports.getItemById = async (req, res) => {
 // 4. إضافة غرض
 exports.createItem = async (req, res) => {
     try {
-        const { title, description, category, location, condition } = req.body;
-        let imageUrl = 'https://res.cloudinary.com/demo/image/upload/v1312461204/sample.jpg', cloudinaryId = '';
-        if (req.file) {
-            const r = await uploadToCloudinary(req.file.buffer);
-            imageUrl = r.secure_url; cloudinaryId = r.public_id;
+        // 1. DTO Validation: فحص البيانات قبل ما نعمل أي إشي
+        const { error } = validateCreateItem(req.body);
+        if (error) {
+            // إذا في خطأ بالبيانات (مثلاً الاسم فاضي)، بنرده فوراً للفرونت إند
+            return res.status(400).json({ success: false, message: error.details[0].message });
         }
-        const newItem = await new Item({
-            title, description, category, location, condition,
-            imageUrl, cloudinaryId, donor: req.user.id
-        }).save();
-        res.status(201).json({ msg: 'تم إضافة التبرع 🎁', item: newItem });
-    } catch (err) { res.status(500).json({ msg: 'فشل الإضافة', error: err.message }); }
+
+        // 2. تمرير البيانات النظيفة للـ Service
+        const result = await itemService.createItemLogic(req.body, req.user._id, req.file);
+
+        // 3. الرد بنجاح
+        res.status(201).json({ success: true, ...result });
+
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
 };
 
 

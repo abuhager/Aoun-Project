@@ -52,3 +52,33 @@ exports.bookItemLogic = async (itemId, userId) => {
         item: bookedItem 
     };
 };
+// backend/services/itemService.js (إضافة الدالة التالية)
+
+exports.createItemLogic = async (itemData, userId, file) => {
+    // 1. التأكد إنو المستخدم رفع صورة
+    if (!file) {
+        throw new Error('صورة الغرض مطلوبة.');
+    }
+
+    // 2. هون بنقدر نضيف لوجيك رفع الصورة لـ Cloudinary لو بدك
+    // (حالياً رح نفترض إنك بترفعها وبترجع الرابط، أو بنحط رابط مؤقت)
+    const imageUrl = file.path; // بناءً على الميدل وير تبعك
+
+    // 3. تجهيز بيانات الغرض
+    const newItemData = {
+        name: itemData.name,
+        category: itemData.category,
+        description: itemData.description,
+        imageUrl: imageUrl,
+        donor: userId,       // بنربط الغرض بالشخص اللي منادي الـ API
+        status: 'متاح'       // الحالة الافتراضية
+    };
+
+    // 4. حفظ الغرض في الداتا بيز عن طريق الـ Repository
+    const createdItem = await itemRepository.createItem(newItemData);
+
+    return {
+        message: 'تم إضافة الغرض بنجاح',
+        item: createdItem
+    };
+};

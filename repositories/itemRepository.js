@@ -27,3 +27,7 @@ exports.addToWaitlist = async (itemId, userId) => {
         { new: true }
     );
 };
+exports.createItem = async (itemData) => {
+    const newItem = new Item(itemData);
+    return await newItem.save();
+};
