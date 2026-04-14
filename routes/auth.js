@@ -1,18 +1,19 @@
 const express = require('express');
 const router = express.Router();
-// You are extracting the functions here:
-const { register, login, verifyEmail,getUserProfile,forgotPassword, resetPassword} = require('../controllers/authController');
 
-router.get('/profile/:id', getUserProfile); // ضفنا كلمة profile هون// مسار التسجيل
+// 🛡️ استدعاء حارس تسجيل الدخول اللي عملناه
+const { authLimiter } = require('../middlewares/rateLimiter'); 
+const { register, login, verifyEmail, getUserProfile, forgotPassword, resetPassword } = require('../controllers/authController');
+
+router.get('/profile/:id', getUserProfile); 
 router.post('/register', register);
-
-// FIX: Remove "authController." and use the extracted function name directly
 router.post('/verify-email', verifyEmail); 
 
-// مسار تسجيل الدخول
-router.post('/login', login);
+// 🛡️ تطبيق الحماية الصارمة (authLimiter) على تسجيل الدخول
+router.post('/login', authLimiter, login);
 
-router.post('/forgot-password', forgotPassword);
+// 🛡️ تطبيق نفس الحماية على نسيان كلمة المرور (عشان نمنع السبام والإزعاج بالإيميلات)
+router.post('/forgot-password', authLimiter, forgotPassword);
 router.put('/reset-password/:token', resetPassword);
 
 module.exports = router;

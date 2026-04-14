@@ -1,5 +1,8 @@
 const express = require('express');
 const mongoose = require('mongoose');
+const rateLimit = require('express-rate-limit');
+const { globalLimiter } = require('./middlewares/rateLimiter');
+app.use('/api/', globalLimiter);
 const cors = require('cors');
 const initCronJobs = require('./utils/cronJobs'); 
 require('dotenv').config();
