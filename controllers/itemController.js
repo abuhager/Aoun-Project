@@ -3,7 +3,7 @@ const Item       = require('../models/Item');
 const User       = require('../models/User');
 const cloudinary = require('cloudinary').v2;
 const sendEmail  = require('../utils/sendEmail');
-
+const itemService = require('../services/itemService');
 cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
     api_key:    process.env.CLOUDINARY_API_KEY,
@@ -125,78 +125,18 @@ exports.createItem = async (req, res) => {
 
 
 // 5. حجز غرض
+
 exports.bookItem = async (req, res) => {
     try {
-        const userId = req.user.id.toString();
-
-        const [unrated, booker] = await Promise.all([
-            Item.findOne({ bookedBy: userId, status: 'تم التسليم', isRated: false }),
-            User.findById(userId)
-        ]);
-
-        if (!booker) return res.status(404).json({ msg: 'المستخدم غير موجود' });
-
-        if (unrated)
-            return res.status(400).json({ msg: `قيّم غرض (${unrated.title}) أولاً 💚` });
-
-        if (booker.quota <= 0)
-            return res.status(400).json({ msg: 'الكوتا منتهية ⚠️' });
-
-        // ✅ [تعديل 2] عملية Atomic واحدة تمنع Race Condition
-        // تجلب وتحجز في نفس اللحظة — لو غرضان جاءوا سوا، واحد بس ينجح
-        const otp  = Math.floor(1000 + Math.random() * 9000).toString();
-        const item = await Item.findOneAndUpdate(
-            {
-                _id:    req.params.id,
-                status: 'متاح',
-                donor:  { $ne: userId },              // مش غرضه هو
-                cancelledBy: { $nin: [userId] }        // ما كنسل مسبقاً
-            },
-            {
-                $set: {
-                    status:      'محجوز',
-                    bookedBy:    userId,
-                    deliveryOtp: otp,
-                    bookedAt:    new Date()
-                }
-            },
-            { new: true }
-        );
-
-        // لو item رجع null يعني الغرض غير متاح أو ممنوع عليه
-        if (!item) {
-            // تحقق هل الغرض موجود أصلاً
-            const exists = await Item.findById(req.params.id).select('+cancelledBy');
-            if (!exists) return res.status(404).json({ msg: 'الغرض غير موجود' });
-
-            if (exists.donor.toString() === userId)
-                return res.status(400).json({ msg: 'لا يمكنك حجز غرضك الشخصي' });
-
-            if ((exists.cancelledBy || []).some(id => id.toString() === userId))
-                return res.status(400).json({ msg: 'لا يمكنك حجز هذا الغرض مجدداً 🚫' });
-
-            // الغرض محجوز → أضفه للانتظار
-            if (exists.waitlist.some(w => w.user.toString() === userId))
-                return res.status(400).json({ msg: 'أنت مسجل بالفعل في الانتظار' });
-
-            exists.waitlist.push({ user: userId });
-            await exists.save();
-            return res.json({ msg: 'تمت إضافتك لقائمة الانتظار 🕒', item: exists, inWaitlist: true });
-        }
-
-        // خصم الكوتا بعد نجاح الحجز
-        booker.quota -= 1;
-        await booker.save();
-
-        await safeSendEmail({
-            email:   booker.email,
-            subject: `تأكيد حجز: ${item.title} 🎁`,
-            message: `<div dir="rtl">رمز الاستلام: <h2 style="color:#006155;">${otp}</h2><p>لديك 72 ساعة لإتمام الاستلام ⏱️</p></div>`
-        });
-
-        return res.json({ msg: `تم الحجز! الرمز: ${otp} 🔐`, item });
-
-    } catch (err) { res.status(500).json({ msg: 'خطأ في الحجز' }); }
+        // نمرر الـ ID تبع الغرض، والـ ID تبع المستخدم للـ Service
+        const result = await itemService.bookItemLogic(req.params.id, req.user._id);
+        
+        // الرد بنجاح
+        res.status(200).json({ success: true, ...result });
+    } catch (error) {
+        // التقاط أي خطأ (مثلاً: الكوتا خلصت) ورده للفرونت إند
+        res.status(400).json({ success: false, message: error.message });
+    }
 };
 
 
