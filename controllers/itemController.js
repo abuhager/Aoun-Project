@@ -1,17 +1,6 @@
 // controllers/itemController.js
-const Item       = require('../models/Item');
-const User       = require('../models/User');
-const sendEmail  = require('../utils/sendEmail');
 const itemService = require('../services/itemService');
 const { validateCreateItem } = require('../dtos/itemDto');
-
-async function safeSendEmail(options) {
-    try { await sendEmail(options); }
-    catch (err) { console.error('📧 فشل البريد:', err.message); }
-}
-
-
-
 
 // 1. جلب كل التبرعات مع Pagination
 
@@ -88,16 +77,15 @@ exports.createItem = async (req, res) => {
 // 5. حجز غرض
 
 exports.bookItem = async (req, res) => {
-    try {
-        // نمرر الـ ID تبع الغرض، والـ ID تبع المستخدم للـ Service
-        const result = await itemService.bookItemLogic(req.params.id, req.user._id);
-        
-        // الرد بنجاح
-        res.status(200).json({ success: true, ...result });
-    } catch (error) {
-        // التقاط أي خطأ (مثلاً: الكوتا خلصت) ورده للفرونت إند
-        res.status(400).json({ success: false, message: error.message });
-    }
+  try {
+    const userId = req.user.id || req.user._id;   // ✅ نفس النمط اللي استخدمناه في createItem
+
+    const result = await itemService.bookItemLogic(req.params.id, userId);
+
+    res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
 };
 
 
