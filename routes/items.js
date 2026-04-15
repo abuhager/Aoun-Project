@@ -6,8 +6,8 @@ const { createItem, getItems, bookItem, cancelBooking, updateItem, deleteItem, c
 
 // ─── مسارات القراءة (متاحة للجميع باستثناء الأغراض الشخصية) ───
 router.get('/', getItems);
-router.get('/:id', getItemById);
 router.get('/me', auth, getMyItems); // 👮‍♂️ الأغراض الشخصية تحتاج حارس
+router.get('/:id', getItemById);
 
 // ─── مسارات الإنشاء والتعديل (تحتاج تسجيل دخول) ───
 router.post('/', [auth, upload.single('image')], createItem);

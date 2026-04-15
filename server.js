@@ -1,13 +1,15 @@
 const express = require('express');
 const mongoose = require('mongoose');
-const rateLimit = require('express-rate-limit');
-const { globalLimiter } = require('./middlewares/rateLimiter');
-app.use('/api/', globalLimiter);
 const cors = require('cors');
+const { globalLimiter } = require('./middlewares/rateLimiter');
 const initCronJobs = require('./utils/cronJobs'); 
 require('dotenv').config();
 
+// 1. أولاً: تعريف السيرفر (app)
 const app = express();
+
+// 2. ثانياً: تفعيل الجدار الناري لحماية مسارات الـ API
+app.use('/api/', globalLimiter);
 
 // 🟢 1. إعداد الـ CORS بشكل احترافي لدعم اللوكال والموقع المرفوع
 const allowedOrigins = [

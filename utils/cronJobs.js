@@ -3,6 +3,7 @@ const cron     = require('node-cron');
 const User     = require('../models/User');
 const Item     = require('../models/Item');
 const sendEmail = require('../utils/sendEmail');
+const { generateOtp } = require('../utils/otp');
 
 const initCronJobs = () => {
 
@@ -51,7 +52,7 @@ const initCronJobs = () => {
                     });
 
                     if (luckyUser) {
-                        const newOtp     = Math.floor(1000 + Math.random() * 9000).toString();
+                        const newOtp     =  generateOtp();
                         item.bookedBy    = luckyUser._id;
                         item.status      = 'محجوز';
                         item.deliveryOtp = newOtp;
