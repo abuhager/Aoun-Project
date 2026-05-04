@@ -1,19 +1,23 @@
+// ===== بعد ✅ =====
 const express = require('express');
 const router = express.Router();
+const auth = require('../middlewares/auth');
+const { globalLimiter, authLimiter } = require('../middlewares/rateLimiter');
 
-// 🛡️ استدعاء حارس تسجيل الدخول اللي عملناه
-const { authLimiter } = require('../middlewares/rateLimiter'); 
-const { register, login, verifyEmail, getUserProfile, forgotPassword, resetPassword } = require('../controllers/authController');
+// 1. التسجيل
+router.post('/register', authLimiter, authController.register);
 
-router.get('/profile/:id', getUserProfile); 
-router.post('/register', register);
-router.post('/verify-email', verifyEmail); 
+// 2. تأكيد الإيميل
+router.post('/verify-email', authLimiter, authController.verifyEmail);
 
-// 🛡️ تطبيق الحماية الصارمة (authLimiter) على تسجيل الدخول
-router.post('/login', authLimiter, login);
+// 3. تسجيل الدخول ← أهم route يحتاج الحماية
+router.post('/login', authLimiter, authController.login);
 
-// 🛡️ تطبيق نفس الحماية على نسيان كلمة المرور (عشان نمنع السبام والإزعاج بالإيميلات)
-router.post('/forgot-password', authLimiter, forgotPassword);
-router.put('/reset-password/:token', resetPassword);
+// 4. نسيت كلمة المرور
+router.post('/forgot-password', authLimiter, authController.forgotPassword);
 
-module.exports = router;
+// 5. إعادة تعيين كلمة المرور
+router.post('/reset-password', authLimiter, authController.resetPassword);
+
+// 6. بروفايل المستخدم ← لا يحتاج authLimiter، يكفيه auth
+router.get('/me', auth, authController.getUserProfile);
