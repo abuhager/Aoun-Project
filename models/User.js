@@ -2,40 +2,44 @@ const mongoose = require("mongoose");
 
 const userSchema = new mongoose.Schema(
   {
-    name: { type: String, required: true, trim: true },
-    email: { type: String, required: true, unique: true, index: true },
-    password: { type: String, required: true },
-    phone: { type: String },
+    name:     { type: String, required: true, trim: true },
+    email:    { type: String, required: true, unique: true, index: true },
+
+    // ✅ select: false — لن يُرجع في أي query إلا لو طلبته صراحةً بـ .select('+password')
+    password: { type: String, required: true, select: false },
+
+    phone:    { type: String },
     reportedBy: [
       {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "user",
+        ref: "User",
       },
     ],
-    avatar: { type: String, default: '' },
+    avatar:   { type: String, default: "" },
+    isBanned: { type: Boolean, default: false },
 
-    isBanned: { type: Boolean, default: false }, // هل الحساب محظور؟
-    resetPasswordToken: String,
+    resetPasswordToken:  String,
     resetPasswordExpire: Date,
+
     role: {
-      type: String,
+      type:    String,
       default: "user",
-      enum: ["user", "admin", "super_admin"],
-    },
-    isVerified: {
-      type: Boolean,
-      default: false, // أول ما يسجل بكون حسابه مش مفعل
+      enum:    ["user", "admin", "super_admin"],
     },
 
-    verificationOtp: {
-      type: String, // هون بنخزن كود التفعيل المكون من 4 أرقام
-    },
-    isVerifiedStudent: { type: Boolean, default: false }, // شارة الطالب الموثق
-    trustScore: { type: Number, default: 70 }, // نقاط الثقة تبدأ من 100
-    quota: { type: Number, default: 2 }, // الحصة الأسبوعية (مثلاً 3 أغراض)
+    isVerified: { type: Boolean, default: false },
+    verificationOtp: { type: String },
+
+    isVerifiedStudent: { type: Boolean, default: false },
+    trustScore:        { type: Number, default: 70 },
+    quota:             { type: Number, default: 2 },
+
+    // ✅ جديد — المرحلة 1
+    refreshToken:   { type: String, select: false },        // للـ Refresh Token (HttpOnly Cookie)
+    totalDonations: { type: Number, default: 0 },           // عدد التبرعات المكتملة (للـ Leaderboard)
+    badges:         { type: [String], default: [] },        // الأوسمة: ['first_donation', 'top_donor', ...]
   },
-
-  { timestamps: true },
+  { timestamps: true }
 );
 
 module.exports = mongoose.model("User", userSchema);
