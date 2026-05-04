@@ -1,9 +1,9 @@
 // backend/dtos/itemDto.js
 const Joi = require('joi');
 
-// ─────────────────────────────────────────
+// ============================================
 // 1. Validation — التحقق من البيانات الواردة
-// ─────────────────────────────────────────
+// ============================================
 
 exports.validateCreateItem = (data) => {
   const schema = Joi.object({
@@ -23,8 +23,7 @@ exports.validateCreateItem = (data) => {
       'string.empty': 'الموقع مطلوب',
     }),
     condition: Joi.string().allow('').max(100),
-  }).unknown(true); // يسمح ببيانات إضافية (الصورة)
-
+  }).unknown(true);
   return schema.validate(data);
 };
 
@@ -36,45 +35,49 @@ exports.validateUpdateItem = (data) => {
     location:    Joi.string(),
     condition:   Joi.string().allow('').max(100),
   }).unknown(true);
-
   return schema.validate(data);
 };
 
-// ─────────────────────────────────────────
-// 2. Sanitization — تنظيف البيانات الراجعة
-// ─────────────────────────────────────────
+// ============================================
+// 2. Transformations — تشكيل بيانات الـ Response
+// ============================================
 
-// غرض واحد للعرض العام
+// للعموم — بدون أي بيانات حساسة
 exports.toPublicItem = (item) => ({
-  _id:         item._id,
-  title:       item.title,
-  description: item.description,
-  category:    item.category,
-  location:    item.location,
-  condition:   item.condition,
-  imageUrl:    item.imageUrl,
-  status:      item.status,
-  reportCount: item.reportCount,
+  _id:           item._id,
+  title:         item.title,
+  description:   item.description,
+  category:      item.category,
+  location:      item.location,
+  condition:     item.condition,
+  imageUrl:      item.imageUrl,
+  status:        item.status,
+  reportCount:   item.reportCount,
   waitlistCount: item.waitlist?.length ?? 0,
-  createdAt:   item.createdAt,
+  // ✅ مضاف — كان مفقوداً
+  bookedAt:      item.bookedAt,
+  isRated:       item.isRated,
+  handoverMode:  item.handoverMode,
+  hubId:         item.hubId,
+  createdAt:     item.createdAt,
   donor: item.donor ? {
-    _id:              item.donor._id,
-    name:             item.donor.name,
-    trustScore:       item.donor.trustScore,
-    avatar:           item.donor.avatar,
+    _id:               item.donor._id,
+    name:              item.donor.name,
+    trustScore:        item.donor.trustScore,
+    avatar:            item.donor.avatar,
     isVerifiedStudent: item.donor.isVerifiedStudent,
   } : null,
   bookedBy: item.bookedBy ? {
     _id:  item.bookedBy._id,
     name: item.bookedBy.name,
   } : null,
-  // ⚠️ deliveryOtp لا يظهر هنا أبداً
 });
 
-// غرض للمتبرع (يرى الـ OTP)
+// للمتبرع — يرى بيانات الحاجز (email + phone) لكن ❌ بدون OTP
 exports.toDonorItem = (item) => ({
   ...exports.toPublicItem(item),
-  otp:      item.status === 'محجوز' ? item.deliveryOtp : undefined,
+  // ✅ OTP مُزال من الـ response نهائياً
+  // الـ OTP يُرسَل للمتبرع عبر email فقط عند الحجز
   bookedBy: item.bookedBy ? {
     _id:   item.bookedBy._id,
     name:  item.bookedBy.name,
@@ -83,15 +86,16 @@ exports.toDonorItem = (item) => ({
   } : null,
 });
 
-// غرض للمستلم (يرى الـ OTP بتاعه)
+// للمستلم — يرى بيانات المتبرع (phone) لكن ❌ بدون OTP
 exports.toReceiverItem = (item) => ({
   ...exports.toPublicItem(item),
-  otp: item.status === 'محجوز' ? item.deliveryOtp : undefined,
+  // ✅ OTP مُزال من الـ response نهائياً
+  // الـ OTP يُرسَل للمستلم عبر email فقط عند الحجز
   donor: item.donor ? {
-    _id:              item.donor._id,
-    name:             item.donor.name,
-    phone:            item.donor.phone,
-    trustScore:       item.donor.trustScore,
+    _id:               item.donor._id,
+    name:              item.donor.name,
+    phone:             item.donor.phone,
+    trustScore:        item.donor.trustScore,
     isVerifiedStudent: item.donor.isVerifiedStudent,
   } : null,
 });
