@@ -36,48 +36,92 @@ function uploadToCloudinary(buffer) {
 // 1. منطق حجز الغرض
 // ─────────────────────────────────────────
 exports.bookItemLogic = async (itemId, userId) => {
+  // 1️⃣ فحوصات قراءة فقط (خارج الـ transaction)
   const unrated = await Item.findOne({
-    bookedBy: userId, status: "تم التسليم", isRated: false,
+    bookedBy: userId,
+    status: "تم التسليم",
+    isRated: false,
   });
-  if (unrated) throw new Error(`قيّم غرض (${unrated.title}) أولاً لتعزيز مجتمع الثقة 💚`);
+  if (unrated)
+    throw new Error(`قيّم غرض (${unrated.title}) أولاً لتعزيز مجتمع الثقة 💚`);
 
   const item = await itemRepository.findItemById(itemId);
   if (!item) throw new Error("الغرض غير موجود أو تم حذفه.");
+
   if (item.donor.toString() === userId.toString())
     throw new Error("لا يمكنك حجز الغرض الذي قمت بالتبرع به.");
 
   if ((item.cancelledBy || []).some((id) => id.toString() === userId))
     throw new Error("لا يمكنك حجز هذا الغرض مجدداً بعد إلغائه 🚫");
 
-  const user = await User.findById(userId);
-  if (user.quota <= 0) throw new Error("عذراً، لقد استنفدت حصتك (الكوتا) لهذا الشهر.");
+  // 2️⃣ بدء الـ Transaction للعمليات الكتابية
+  const session = await mongoose.startSession();
 
-  const otp = generateOtp();
-  const bookedItem = await itemRepository.bookItemSafely(itemId, userId, {
-    status: "محجوز",
-    bookedBy: userId,
-    deliveryOtp: otp,
-    bookedAt: new Date(),
-  });
+  try {
+    session.startTransaction();
 
-  if (!bookedItem) {
-    await itemRepository.addToWaitlist(itemId, userId);
-    return { status: "waitlist", message: "سبقك أحدهم! تمت إضافتك لطابور الانتظار بنجاح." };
+    // 3️⃣ حجز الغرض داخل الـ transaction
+    const otp = generateOtp();
+    const bookedItem = await itemRepository.bookItemSafely(
+      itemId,
+      userId,
+      {
+        status: "محجوز",
+        bookedBy: userId,
+        deliveryOtp: otp,
+        bookedAt: new Date(),
+      },
+      { session }
+    );
+
+    // 4️⃣ إذا سبقك أحد → لا تغييرات داخل الـ transaction، فقط نعمل abort و نطلع
+    if (!bookedItem) {
+      await session.abortTransaction(); // يلغي أي تغييرات تمت داخل الترانزكشن (هنا غالبًا لا شيء)
+      // بعد ما نغلق الـ session نعمل منطق الـ waitlist
+      await itemRepository.addToWaitlist(itemId, userId);
+      return {
+        status: "waitlist",
+        message: "سبقك أحدهم! تمت إضافتك لطابور الانتظار بنجاح.",
+      };
+    }
+
+    // 5️⃣ خصم الكوتا (atomic داخل نفس الـ transaction)
+    const user = await User.findOneAndUpdate(
+      { _id: userId, quota: { $gt: 0 } },
+      { $inc: { quota: -1 } },
+      { new: true, session }
+    );
+
+    if (!user)
+      throw new Error("عذراً، لقد استنفدت حصتك (الكوتا) لهذا الشهر.");
+
+    // 6️⃣ كل شيء تمام → commit
+    await session.commitTransaction();
+
+    // 7️⃣ إيميل خارج الـ transaction
+    fireSendEmail({
+      email: user.email,
+      subject: `تأكيد حجز: ${bookedItem.title} 🎁`,
+      message: `<div dir="rtl">تهانينا! أصبح الغرض محجوزاً لك.<br>
+                رمز الاستلام: <b>${otp}</b>
+                <p>لديك 72 ساعة لإتمام الاستلام ⏱️</p></div>`,
+    });
+
+    return {
+      status: "booked",
+      message:
+        "تم الحجز بنجاح. تحقق من بريدك الإلكتروني للحصول على رمز الاستلام 📧",
+      item: bookedItem,
+    };
+  } catch (error) {
+    // لو صار أي خطأ → تراجع عن الترانزكشن
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    // يتم استدعاؤها في كل الحالات
+    session.endSession();
   }
-
-  user.quota -= 1;
-  await user.save();
-
-  // ✅ fire-and-forget مع تسجيل الأخطاء
-  fireSendEmail({
-    email: user.email,
-    subject: `تأكيد حجز: ${bookedItem.title} 🎁`,
-    message: `<div dir="rtl">تهانينا! أصبح الغرض محجوزاً لك.<br>رمز الاستلام: <b>${otp}</b><p>لديك 72 ساعة لإتمام الاستلام ⏱️</p></div>`,
-  });
-
-  return { status: "booked", message: "تم الحجز بنجاح.", otp, item: bookedItem };
 };
-
 // ─────────────────────────────────────────
 // 2. منطق إضافة غرض جديد
 // ─────────────────────────────────────────
