@@ -82,3 +82,10 @@ exports.findItemForUpdate = async (itemId, donorId) => {
 exports.deleteItemById = async (itemDoc) => {
     return await itemDoc.deleteOne();
 };
+exports.findPendingRating = async (userId) => {
+  return await Item.findOne({
+    bookedBy: userId,
+    status: 'تم التسليم',
+    isRated: false,
+  }).select('_id title');
+};

@@ -144,3 +144,11 @@ exports.deleteItem = async (req, res) => {
         res.status(401).json({ msg: err.message || 'خطأ في الحذف' });
     }
 };
+exports.getPendingRating = async (req, res) => {
+  try {
+    const result = await itemService.getPendingRatingLogic(req.user.id);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ msg: err.message });
+  }
+};

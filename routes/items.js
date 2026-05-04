@@ -22,5 +22,6 @@ router.put('/rate/:id', auth, rateItem);
 
 // ─── مسارات التبليغ ───
 router.post('/report-user', auth, reportUser);
+router.get('/pending-rating', auth, itemController.getPendingRating);
 
 module.exports = router;

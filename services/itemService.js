@@ -386,3 +386,7 @@ exports.deleteItemLogic = async (itemId, userId, userRole) => {
   await itemRepository.deleteItemById(item);
   return { msg: "تم حذف الغرض نهائياً ⚖️" };
 };
+exports.getPendingRatingLogic = async (userId) => {
+  const item = await itemRepository.findPendingRating(userId);
+  return { hasPending: !!item, item: item || null };
+};
