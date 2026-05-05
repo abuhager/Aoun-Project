@@ -7,10 +7,9 @@
 //   + otpExpiry       — انتهاء صلاحية OTP
 //   + trustScore indexes للـ Leaderboard
 //   ~ verificationOtp — select: false (لا يُرجَع أبداً)
-// BLAST RADIUS:
-//   Direct:       User.findById → حقول جديدة متاحة
-//   Cross-Repo:   Frontend user.types.ts يحتاج تحديث
-//   DB Migration: بدون breaking change — حقول جديدة nullable
+//
+// FIX: حذف UserSchema.index({ email: 1 }) المكرر
+//   email عنده unique: true أصلاً وهذا ينشئ index تلقائياً
 // ============================================================
 const mongoose = require('mongoose');
 
@@ -24,7 +23,7 @@ const UserSchema = new mongoose.Schema(
     email: {
       type: String,
       required: true,
-      unique: true,
+      unique: true,      // ✅ هذا ينشئ index تلقائياً — لا تضيف index يدوي
       lowercase: true,
       trim: true,
     },
@@ -45,7 +44,7 @@ const UserSchema = new mongoose.Schema(
       },
     ],
 
-    // ─── Auth & Security ──────────────────────────────────
+    // ─── Auth & Security ───────────────────────────────────
     role: {
       type: String,
       enum: ['user', 'admin', 'super_admin'],
@@ -57,15 +56,15 @@ const UserSchema = new mongoose.Schema(
     },
     verificationOtp: {
       type: String,
-      select: false, // ✅ لا يُرجَع أبداً في الـ API
+      select: false,
     },
     otpExpiry: {
       type: Date,
-      select: false, // ✅ NEW
+      select: false,
     },
     refreshToken: {
       type: String,
-      select: false, // ✅ لا يُرجَع أبداً
+      select: false,
     },
     resetPasswordToken: {
       type: String,
@@ -88,7 +87,7 @@ const UserSchema = new mongoose.Schema(
     },
     phoneVerified: {
       type: Boolean,
-      default: false, // ✅ NEW — WhatsApp OTP
+      default: false,
     },
     trustScore: {
       type: Number,
@@ -97,7 +96,7 @@ const UserSchema = new mongoose.Schema(
       max: 200,
     },
 
-    // ─── Activity & Status ───────────────────────────────
+    // ─── Activity & Status ────────────────────────────────
     isBanned: {
       type: Boolean,
       default: false,
@@ -129,8 +128,8 @@ const UserSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// ─── Indexes ───────────────────────────────────────────────
-UserSchema.index({ email: 1 });
+// ─── Indexes ─────────────────────────────────────────────
+// ❌ حذف: UserSchema.index({ email: 1 }) — مكرر مع unique: true
 UserSchema.index({ trustLevel: 1 });
 UserSchema.index({ trustScore: -1 }); // للـ Leaderboard
 
