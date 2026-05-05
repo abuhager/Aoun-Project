@@ -151,11 +151,9 @@ exports.getMyItemsLogic = async (userId) => {
     itemRepository.findRequestsByUser(userId),
   ]);
 
-  // ✅ SECURITY FIX: حذف deliveryOtp نهائياً من الـ response
-  // الـ OTP يُرسَل فقط عبر الإيميل — لا يجب أن يظهر في الـ API
   const stripOtp = (item) => {
     const { deliveryOtp, ...safeItem } = item.toObject ? item.toObject() : item;
-    void deliveryOtp; // suppress unused warning
+    void deliveryOtp;
     return safeItem;
   };
 
@@ -174,7 +172,6 @@ exports.getItemByIdLogic = async (itemId, requesterId) => {
   if (!item) throw new Error("الغرض غير موجود");
 
   const itemObj = item.toObject();
-  // OTP يُعرَض فقط للحاجز نفسه — وحتى هذا سيُحذَف في مرحلة لاحقة
   if (!requesterId || itemObj.bookedBy?.toString() !== requesterId) {
     delete itemObj.deliveryOtp;
   }
@@ -328,6 +325,9 @@ exports.updateItemLogic = async (itemId, userId, updateData, file) => {
   const item = await itemRepository.findItemForUpdate(itemId, userId);
   if (!item) throw new Error("الغرض غير موجود أو لا تملك صلاحية تعديله");
 
+  const wasBooked = item.status === "محجوز" && !!item.bookedBy;
+  const previousBookerId = wasBooked ? item.bookedBy : null;
+
   if (file) {
     if (item.cloudinaryId) {
       await cloudinary.uploader.destroy(item.cloudinaryId).catch(console.error);
@@ -338,8 +338,39 @@ exports.updateItemLogic = async (itemId, userId, updateData, file) => {
   }
 
   Object.assign(item, updateData);
+
+  if (wasBooked) {
+    item.status = "متاح";
+    item.bookedBy = null;
+    item.deliveryOtp = undefined;
+    item.bookedAt = undefined;
+    item.waitlist = [];
+  }
+
   await item.save();
-  return { msg: "تم التعديل بنجاح ✨", item };
+
+  if (wasBooked && previousBookerId) {
+    const previousBooker = await User.findByIdAndUpdate(
+      previousBookerId,
+      { $inc: { quota: 1 } },
+      { new: true }
+    );
+
+    if (previousBooker) {
+      fireSendEmail({
+        email: previousBooker.email,
+        subject: `تم تعديل الغرض المحجوز: ${item.title} ⚠️`,
+        message: `<div dir="rtl">قام المتبرع بتعديل بيانات الغرض الذي كان محجوزاً لك، لذلك تم إلغاء الحجز تلقائياً وإرجاع حصتك (الكوتا) لك. يمكنك إعادة حجز الغرض مرة أخرى إذا كان لا يزال مناسباً لك 💚</div>`,
+      });
+    }
+  }
+
+  return {
+    msg: wasBooked
+      ? "تم تعديل الغرض وإلغاء الحجز الحالي مع السماح بإعادة الحجز ✨"
+      : "تم التعديل بنجاح ✨",
+    item,
+  };
 };
 
 // ─────────────────────────────────────────
