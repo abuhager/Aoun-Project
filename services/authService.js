@@ -1,245 +1,221 @@
-const bcrypt   = require('bcryptjs');
-const crypto   = require('crypto');
-const jwt      = require('jsonwebtoken');
-const sendEmail       = require('../utils/sendEmail');
-const userRepository  = require('../repositories/userRepository');
-const Item            = require('../models/Item');
+// services/authService.js
+// ============================================================
+// ✅ PHASE 1 — REFACTORED
+// التغييرات:
+//   + generateTokens()       — Access (15m) + Refresh (7d)
+//   + refreshAccessToken()   — Refresh Token Rotation
+//   + logoutLogic()          — حذف Refresh Token من DB
+//   ~ OTP مشفّر بـ SHA-256 قبل الحفظ في DB
+//   ~ verifyEmailLogic       — يرجع كلا الـ Tokens
+//   ~ loginLogic             — يرجع كلا الـ Tokens
+// ============================================================
+const crypto    = require('crypto');
+const jwt       = require('jsonwebtoken');
+const bcrypt    = require('bcryptjs');
+const User      = require('../models/User');
+const sendEmail = require('../utils/sendEmail');
+const { generateOtp } = require('../utils/otp');
+const {
+  validateRegister,
+  validateLogin,
+  validateVerifyEmail,
+} = require('../dtos/authDto');
 
-// ─── دالة مساعدة: توليد OTP ───────────────────────────
-const generateOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
+function hashOtp(otp) {
+  return crypto.createHash('sha256').update(otp).digest('hex');
+}
 
-// ─── دالة مساعدة: توليد JWT ───────────────────────────
-const generateToken = (user) => {
-    const payload = { user: { id: user.id, role: user.role } };
-    return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
+function generateTokens(userId, role) {
+  const payload = { user: { id: userId, role } };
+  const accessToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '15m' });
+  const refreshToken = jwt.sign(payload, process.env.JWT_REFRESH_SECRET, { expiresIn: '7d' });
+  return { accessToken, refreshToken };
+}
+
+exports.registerLogic = async (body) => {
+  const { error } = validateRegister(body);
+  if (error) throw { status: 400, msg: error.details[0].message };
+
+  const { name, email, password, phone } = body;
+
+  const existingUser = await User.findOne({ email });
+  if (existingUser) throw { status: 400, msg: 'البريد الإلكتروني مسجّل مسبقاً' };
+
+  const salt       = await bcrypt.genSalt(12);
+  const hashedPass = await bcrypt.hash(password, salt);
+  const otp        = generateOtp();
+  const hashedOtp  = hashOtp(otp);
+
+  const isUniversityEmail =
+    email.endsWith('.edu') || email.endsWith('.edu.jo') ||
+    email.endsWith('.ac.uk') || email.endsWith('.edu.sa');
+
+  const user = new User({
+    name,
+    email,
+    password:          hashedPass,
+    phone:             phone || null,
+    verificationOtp:   hashedOtp,
+    otpExpiry:         new Date(Date.now() + 10 * 60 * 1000),
+    isVerifiedStudent: isUniversityEmail,
+    trustLevel:        isUniversityEmail ? 2 : 1,
+  });
+
+  await user.save();
+
+  await sendEmail({
+    email,
+    subject: '🔐 رمز التحقق — منصة عون',
+    message: `<div dir="rtl" style="font-family:sans-serif;padding:20px"><h2>مرحباً ${name} 👋</h2><p>رمز التحقق الخاص بك:</p><h1 style="letter-spacing:8px;color:#16a34a">${otp}</h1><p style="color:#666">صالح لمدة 10 دقائق فقط</p></div>`,
+  });
+
+  return { msg: 'تم إنشاء الحساب. تحقق من بريدك الإلكتروني.' };
 };
 
-// ─── 1. منطق التسجيل ──────────────────────────────────
-exports.registerLogic = async ({ name, email, password, phone }) => {
-    let user = await userRepository.findByEmail(email);
+exports.verifyEmailLogic = async (body) => {
+  const { error } = validateVerifyEmail(body);
+  if (error) throw { status: 400, msg: error.details[0].message };
 
-    // حالة: موجود لكن غير مفعّل → أعد إرسال OTP
-    if (user && !user.isVerified) {
-        const newOtp = generateOtp();
-        user.verificationOtp = newOtp;
-        user.name     = name;
-        user.password = await bcrypt.hash(password, 10);
-        await userRepository.saveUser(user);
+  const { email, otp } = body;
+  const hashedOtp = hashOtp(otp);
 
-        await sendEmail({
-            email: user.email,
-            subject: 'تفعيل حسابك في منصة عون ✉️',
-            message: `
-                <div style="font-family:sans-serif;text-align:center;direction:rtl;">
-                    <h2 style="color:#006155;">أهلاً بك مجدداً في عون يا ${name}! 🎓</h2>
-                    <p>يبدو أنك حاولت التسجيل مسبقاً ولم تفعل الحساب. إليك كود التفعيل الجديد:</p>
-                    <div style="background:#f3f4f5;padding:20px;border-radius:10px;display:inline-block;margin:20px 0;">
-                        <h1 style="color:#087c6e;font-size:40px;margin:0;letter-spacing:10px;">${newOtp}</h1>
-                    </div>
-                    <p style="color:#777;font-size:14px;">أدخل هذا الكود لتتمكن من استخدام حسابك.</p>
-                </div>`
-        });
+  const user = await User.findOne({ email }).select('+verificationOtp +otpExpiry +password');
 
-        return {
-            statusCode: 200,
-            body: {
-                msg: 'هذا الحساب موجود مسبقاً ولكنه غير مفعل، تم إرسال كود جديد لإيميلك ✉️',
-                needsVerification: true,
-                email: user.email
-            }
-        };
-    }
+  if (!user)           throw { status: 400, msg: 'المستخدم غير موجود' };
+  if (user.isVerified) throw { status: 400, msg: 'الحساب مفعّل مسبقاً' };
+  if (!user.verificationOtp || user.verificationOtp !== hashedOtp) {
+    throw { status: 400, msg: 'رمز التحقق غير صحيح' };
+  }
+  if (user.otpExpiry && user.otpExpiry < new Date()) {
+    throw { status: 400, msg: 'انتهت صلاحية رمز التحقق' };
+  }
 
-    // حالة: موجود ومفعّل
-    if (user && user.isVerified) {
-        return {
-            statusCode: 400,
-            body: { msg: 'هذا الحساب موجود مسبقاً ومفعل بالفعل، يمكنك تسجيل الدخول.' }
-        };
-    }
+  const { accessToken, refreshToken } = generateTokens(user._id, user.role);
 
-    // حالة: مستخدم جديد كلياً
-    const isVerifiedStudent = email.endsWith('.edu') || email.endsWith('.edu.jo');
-    const otp  = generateOtp();
-    const salt = await bcrypt.genSalt(10);
+  user.isVerified      = true;
+  user.verificationOtp = undefined;
+  user.otpExpiry       = undefined;
+  user.refreshToken    = refreshToken;
+  await user.save();
 
-    user = await userRepository.createUser({
-        name,
-        email,
-        phone,
-        password:        await bcrypt.hash(password, salt),
-        isVerifiedStudent,
-        isVerified:      false,
-        verificationOtp: otp
-    });
-
-    await sendEmail({
-        email: user.email,
-        subject: 'تفعيل حسابك في منصة عون ✉️',
-        message: `
-            <div style="font-family:sans-serif;text-align:center;direction:rtl;">
-                <h2 style="color:#006155;">مرحباً بك في مجتمع عون يا ${name}! 🎓</h2>
-                <p>شكراً لانضمامك إلينا. لتفعيل حسابك، يرجى استخدام رمز التحقق التالي:</p>
-                <div style="background:#f3f4f5;padding:20px;border-radius:10px;display:inline-block;margin:20px 0;">
-                    <h1 style="color:#087c6e;font-size:40px;margin:0;letter-spacing:10px;">${otp}</h1>
-                </div>
-                <p style="color:#777;font-size:14px;">إذا لم تقم بإنشاء هذا الحساب، يرجى تجاهل هذه الرسالة.</p>
-            </div>`
-    });
-
-    return {
-        statusCode: 201,
-        body: {
-            msg: 'تم إنشاء الحساب بنجاح، يرجى تفقد بريدك الإلكتروني لتفعيل الحساب ✉️',
-            user: {
-                name:              user.name,
-                email:             user.email,
-                isVerifiedStudent: user.isVerifiedStudent,
-                role:              user.role,
-                isVerified:        user.isVerified
-            }
-        }
-    };
+  return {
+    accessToken,
+    refreshToken,
+    user: {
+      _id: user._id, name: user.name, email: user.email, role: user.role,
+      trustScore: user.trustScore, trustLevel: user.trustLevel,
+      quota: user.quota, isVerified: true,
+      isVerifiedStudent: user.isVerifiedStudent, phoneVerified: user.phoneVerified,
+      isBanned: user.isBanned, totalDonations: user.totalDonations, badges: user.badges,
+    },
+  };
 };
 
-// ─── 2. منطق تأكيد الإيميل ───────────────────────────
-exports.verifyEmailLogic = async ({ email, otp }) => {
-    const user = await userRepository.findByEmail(email);
-    if (!user)             return { statusCode: 404, body: { msg: 'المستخدم غير موجود 🛑' } };
-    if (user.isVerified)   return { statusCode: 400, body: { msg: 'هذا الحساب مفعل مسبقاً، يمكنك تسجيل الدخول مباشرة ✅' } };
-    if (user.verificationOtp !== otp) return { statusCode: 400, body: { msg: 'رمز التحقق غير صحيح ❌' } };
+exports.loginLogic = async (body) => {
+  const { error } = validateLogin(body);
+  if (error) throw { status: 400, msg: error.details[0].message };
 
-    user.isVerified      = true;
-    user.verificationOtp = undefined;
-    await userRepository.saveUser(user);
+  const { email, password } = body;
 
-    return { statusCode: 200, body: { msg: 'تم تفعيل حسابك بنجاح! يمكنك الآن تسجيل الدخول 🎉' } };
+  const user = await User.findOne({ email }).select('+password +refreshToken');
+  if (!user) throw { status: 400, msg: 'البريد الإلكتروني أو كلمة المرور غير صحيحة' };
+
+  if (!user.isVerified) throw { status: 400, msg: 'يجب تفعيل الحساب أولاً', needsVerification: true };
+  if (user.isBanned)    throw { status: 403, msg: 'حسابك موقوف. تواصل مع الدعم.' };
+
+  const isMatch = await bcrypt.compare(password, user.password);
+  if (!isMatch) throw { status: 400, msg: 'البريد الإلكتروني أو كلمة المرور غير صحيحة' };
+
+  const { accessToken, refreshToken } = generateTokens(user._id, user.role);
+  user.refreshToken = refreshToken;
+  await user.save();
+
+  return {
+    accessToken,
+    refreshToken,
+    user: {
+      _id: user._id, name: user.name, email: user.email, role: user.role,
+      trustScore: user.trustScore, trustLevel: user.trustLevel,
+      quota: user.quota, isVerified: user.isVerified,
+      isVerifiedStudent: user.isVerifiedStudent, phoneVerified: user.phoneVerified,
+      isBanned: user.isBanned, totalDonations: user.totalDonations, badges: user.badges,
+    },
+  };
 };
 
-// ─── 3. منطق تسجيل الدخول ────────────────────────────
-exports.loginLogic = async ({ email, password }) => {
-    const user = await userRepository.findByEmailWithPassword(email);
-    if (!user) return { statusCode: 400, body: { msg: 'البريد الإلكتروني غير صحيح' } };
+exports.refreshAccessTokenLogic = async (incomingRefreshToken) => {
+  if (!incomingRefreshToken) throw { status: 401, msg: 'لا يوجد Refresh Token' };
 
-    if (user.isBanned) return {
-        statusCode: 403,
-        body: { msg: 'هذا الحساب محظور بسبب مخالفة معايير مجتمع عون 🛑' }
-    };
+  let decoded;
+  try {
+    decoded = jwt.verify(incomingRefreshToken, process.env.JWT_REFRESH_SECRET);
+  } catch {
+    throw { status: 401, msg: 'Refresh Token غير صالح أو منتهي' };
+  }
 
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return { statusCode: 400, body: { msg: 'كلمة الدخول غير صحيحة' } };
+  const user = await User.findById(decoded.user.id).select('+refreshToken');
+  if (!user || user.refreshToken !== incomingRefreshToken) {
+    if (user) { user.refreshToken = undefined; await user.save(); }
+    throw { status: 401, msg: 'جلسة غير صالحة. يرجى تسجيل الدخول مجدداً.' };
+  }
 
-    if (!user.isVerified) return {
-        statusCode: 403,
-        body: {
-            msg: 'حسابك غير مفعل! يرجى تفعيل حسابك باستخدام الرمز المرسل إلى بريدك ✉️',
-            needsVerification: true,
-            email: user.email
-        }
-    };
+  const { accessToken, refreshToken: newRefreshToken } = generateTokens(user._id, user.role);
+  user.refreshToken = newRefreshToken;
+  await user.save();
 
-    const token = generateToken(user);
-
-    return {
-        statusCode: 200,
-        body: {
-            msg: 'تم تسجيل الدخول بنجاح',
-            token,
-            user: {
-                name:              user.name,
-                email:             user.email,
-                isVerifiedStudent: user.isVerifiedStudent,
-                role:              user.role,
-                isVerified:        user.isVerified
-            }
-        }
-    };
+  return { accessToken, refreshToken: newRefreshToken };
 };
 
-// ─── 4. منطق جلب بروفايل مستخدم ──────────────────────
+exports.logoutLogic = async (userId) => {
+  await User.findByIdAndUpdate(userId, { $unset: { refreshToken: 1 } });
+  return { msg: 'تم تسجيل الخروج بنجاح' };
+};
+
 exports.getUserProfileLogic = async (userId) => {
-    const [user, allDonations, completedRequests, totalRatings] = await Promise.all([
-        userRepository.findById(userId),
-        Item.find({ donor: userId }).populate('bookedBy', 'name avatar').sort({ createdAt: -1 }),
-        Item.find({ bookedBy: userId, status: 'تم التسليم' }).populate('donor', 'name avatar').sort({ createdAt: -1 }),
-        Item.countDocuments({ donor: userId, isRated: true })
-    ]);
-
-    if (!user) return { statusCode: 404, body: { msg: 'المستخدم غير موجود' } };
-
-    return {
-        statusCode: 200,
-        body: {
-            user,
-            stats: {
-                donationsCount:     allDonations.length,
-                completedDonations: allDonations.filter(i => i.status === 'تم التسليم').length,
-                receivedCount:      completedRequests.length,
-                totalRatings
-            },
-            allDonations,
-            completedRequests
-        }
-    };
+  const user = await User.findById(userId).select(
+    '-password -verificationOtp -otpExpiry -refreshToken -resetPasswordToken -resetPasswordExpire'
+  );
+  if (!user) throw { status: 404, msg: 'المستخدم غير موجود' };
+  return user;
 };
 
-// ─── 5. منطق نسيت كلمة المرور ────────────────────────
 exports.forgotPasswordLogic = async (email) => {
-    const user = await userRepository.findByEmail(email);
-    if (!user) return { statusCode: 404, body: { msg: 'لا يوجد حساب مسجل بهذا الإيميل' } };
+  const user = await User.findOne({ email });
+  if (!user) return { msg: 'إذا كان الحساب موجوداً، ستصل رسالة للبريد الإلكتروني' };
 
-    const resetToken = crypto.randomBytes(20).toString('hex');
-    user.resetPasswordToken  = crypto.createHash('sha256').update(resetToken).digest('hex');
-    user.resetPasswordExpire = Date.now() + 15 * 60 * 1000; // 15 دقيقة
-    await userRepository.saveUser(user);
+  const otp       = generateOtp();
+  const hashedOtp = hashOtp(otp);
+  user.resetPasswordToken  = hashedOtp;
+  user.resetPasswordExpire = new Date(Date.now() + 15 * 60 * 1000);
+  await user.save();
 
-    const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
-    const resetUrl  = `${clientUrl}/reset-password/${resetToken}`;
+  await sendEmail({
+    email,
+    subject: '🔑 استعادة كلمة المرور — منصة عون',
+    message: `<div dir="rtl" style="font-family:sans-serif;padding:20px"><h2>استعادة كلمة المرور</h2><p>رمز إعادة التعيين:</p><h1 style="letter-spacing:8px;color:#dc2626">${otp}</h1><p style="color:#666">صالح لمدة 15 دقيقة فقط</p></div>`,
+  });
 
-    try {
-        await sendEmail({
-            email: user.email,
-            subject: 'استعادة كلمة المرور - منصة عون 🔒',
-            message: `
-                <div dir="rtl">
-                    <h2>طلب استعادة كلمة المرور</h2>
-                    <p>لقد طلبت استعادة كلمة المرور لحسابك في منصة عون.</p>
-                    <p>يرجى النقر على الرابط أدناه (صالح لمدة 15 دقيقة فقط):</p>
-                    <a href="${resetUrl}" style="background:#006155;color:white;padding:10px 20px;text-decoration:none;border-radius:5px;display:inline-block;margin-top:10px;">
-                        إعادة تعيين كلمة المرور
-                    </a>
-                    <p style="margin-top:20px;font-size:12px;color:gray;">إذا لم تقم بهذا الطلب، يرجى تجاهل هذا البريد.</p>
-                </div>`
-        });
-
-        return { statusCode: 200, body: { msg: 'تم إرسال رابط الاستعادة إلى بريدك الإلكتروني' } };
-    } catch {
-        // لو فشل الإيميل نمسح التوكن ونعيد الخطأ
-        user.resetPasswordToken  = undefined;
-        user.resetPasswordExpire = undefined;
-        await userRepository.saveUser(user);
-        return { statusCode: 500, body: { msg: 'حدث خطأ أثناء إرسال البريد الإلكتروني' } };
-    }
+  return { msg: 'إذا كان الحساب موجوداً، ستصل رسالة للبريد الإلكتروني' };
 };
 
-// ─── 6. منطق إعادة تعيين كلمة المرور ────────────────
-exports.resetPasswordLogic = async (token, newPassword) => {
-    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
-    const user = await userRepository.findByResetToken(hashedToken);
+exports.resetPasswordLogic = async (email, otp, newPassword) => {
+  const hashedOtp = hashOtp(otp);
+  const user = await User.findOne({
+    email,
+    resetPasswordToken:  hashedOtp,
+    resetPasswordExpire: { $gt: new Date() },
+  }).select('+password');
 
-    if (!user) return { statusCode: 400, body: { msg: 'الرابط غير صالح أو انتهت صلاحيته ❌' } };
+  if (!user) throw { status: 400, msg: 'رمز إعادة التعيين غير صحيح أو منتهي' };
 
-    const isSamePassword = await bcrypt.compare(newPassword, user.password);
-    if (isSamePassword) return {
-        statusCode: 400,
-        body: { msg: 'يرجى اختيار كلمة مرور جديدة تختلف عن الحالية ❌' }
-    };
+  const salt    = await bcrypt.genSalt(12);
+  user.password = await bcrypt.hash(newPassword, salt);
+  user.resetPasswordToken  = undefined;
+  user.resetPasswordExpire = undefined;
+  await User.findByIdAndUpdate(user._id, { $unset: { refreshToken: 1 } });
+  await user.save();
 
-    const salt = await bcrypt.genSalt(10);
-    user.password            = await bcrypt.hash(newPassword, salt);
-    user.resetPasswordToken  = undefined;
-    user.resetPasswordExpire = undefined;
-    await userRepository.saveUser(user);
-
-    return { statusCode: 200, body: { msg: 'تم تغيير كلمة المرور بنجاح! يمكنك الآن تسجيل الدخول ✅' } };
+  return { msg: 'تم تغيير كلمة المرور بنجاح' };
 };
+
+exports.generateTokens = generateTokens;

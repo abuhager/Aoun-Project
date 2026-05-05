@@ -1,45 +1,137 @@
-const mongoose = require("mongoose");
+// models/User.js
+// ============================================================
+// ✅ PHASE 1 — UPDATED SCHEMA
+// التغييرات:
+//   + trustLevel (1|2) — أساس Trust System
+//   + phoneVerified   — للتحقق عبر WhatsApp OTP
+//   + otpExpiry       — انتهاء صلاحية OTP
+//   + trustScore indexes للـ Leaderboard
+//   ~ verificationOtp — select: false (لا يُرجَع أبداً)
+// BLAST RADIUS:
+//   Direct:       User.findById → حقول جديدة متاحة
+//   Cross-Repo:   Frontend user.types.ts يحتاج تحديث
+//   DB Migration: بدون breaking change — حقول جديدة nullable
+// ============================================================
+const mongoose = require('mongoose');
 
-const userSchema = new mongoose.Schema(
+const UserSchema = new mongoose.Schema(
   {
-    name:     { type: String, required: true, trim: true },
-    email:    { type: String, required: true, unique: true, index: true },
-
-    // ✅ select: false — لن يُرجع في أي query إلا لو طلبته صراحةً بـ .select('+password')
-    password: { type: String, required: true, select: false },
-
-    phone:    { type: String },
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true,
+    },
+    password: {
+      type: String,
+      required: true,
+      select: false,
+    },
+    phone: {
+      type: String,
+      trim: true,
+      default: null,
+    },
     reportedBy: [
       {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
+        ref: 'User',
       },
     ],
-    avatar:   { type: String, default: "" },
-    isBanned: { type: Boolean, default: false },
 
-    resetPasswordToken:  String,
-    resetPasswordExpire: Date,
-
+    // ─── Auth & Security ──────────────────────────────────
     role: {
-      type:    String,
-      default: "user",
-      enum:    ["user", "admin", "super_admin"],
+      type: String,
+      enum: ['user', 'admin', 'super_admin'],
+      default: 'user',
+    },
+    isVerified: {
+      type: Boolean,
+      default: false,
+    },
+    verificationOtp: {
+      type: String,
+      select: false, // ✅ لا يُرجَع أبداً في الـ API
+    },
+    otpExpiry: {
+      type: Date,
+      select: false, // ✅ NEW
+    },
+    refreshToken: {
+      type: String,
+      select: false, // ✅ لا يُرجَع أبداً
+    },
+    resetPasswordToken: {
+      type: String,
+      select: false,
+    },
+    resetPasswordExpire: {
+      type: Date,
+      select: false,
     },
 
-    isVerified: { type: Boolean, default: false },
-    verificationOtp: { type: String },
+    // ─── Trust System ─────────────────────────────────────
+    trustLevel: {
+      type: Number,
+      enum: [1, 2],
+      default: 1,
+    },
+    isVerifiedStudent: {
+      type: Boolean,
+      default: false,
+    },
+    phoneVerified: {
+      type: Boolean,
+      default: false, // ✅ NEW — WhatsApp OTP
+    },
+    trustScore: {
+      type: Number,
+      default: 70,
+      min: 0,
+      max: 200,
+    },
 
-    isVerifiedStudent: { type: Boolean, default: false },
-    trustScore:        { type: Number, default: 70 },
-    quota:             { type: Number, default: 2 },
+    // ─── Activity & Status ───────────────────────────────
+    isBanned: {
+      type: Boolean,
+      default: false,
+    },
+    quota: {
+      type: Number,
+      default: 2,
+      min: 0,
+    },
+    avatar: {
+      type: String,
+      default: '',
+    },
 
-    // ✅ جديد — المرحلة 1
-    refreshToken:   { type: String, select: false },        // للـ Refresh Token (HttpOnly Cookie)
-    totalDonations: { type: Number, default: 0 },           // عدد التبرعات المكتملة (للـ Leaderboard)
-    badges:         { type: [String], default: [] },        // الأوسمة: ['first_donation', 'top_donor', ...]
+    // ─── Gamification ────────────────────────────────────
+    totalDonations: {
+      type: Number,
+      default: 0,
+    },
+    badges: {
+      type: [String],
+      default: [],
+    },
+    monthlyDonations: {
+      type: Number,
+      default: 0,
+    },
   },
   { timestamps: true }
 );
 
-module.exports = mongoose.model("User", userSchema);
+// ─── Indexes ───────────────────────────────────────────────
+UserSchema.index({ email: 1 });
+UserSchema.index({ trustLevel: 1 });
+UserSchema.index({ trustScore: -1 }); // للـ Leaderboard
+
+module.exports = mongoose.model('User', UserSchema);

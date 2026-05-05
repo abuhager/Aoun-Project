@@ -1,25 +1,22 @@
+// routes/auth.js
+// ============================================================
+// ✅ PHASE 1 — UPDATED
+// + POST /refresh-token — تجديد Access Token
+// + POST /logout        — تسجيل خروج آمن
+// ============================================================
 const express        = require('express');
 const router         = express.Router();
 const auth           = require('../middlewares/auth');
-const authController = require('../controllers/authController'); // ✅ ناقص هذا
-const { globalLimiter, authLimiter } = require('../middlewares/rateLimiter');
+const authController = require('../controllers/authController');
 
-// 1. التسجيل
-router.post('/register', authLimiter, authController.register);
+router.post('/register',        authController.register);
+router.post('/verify-email',    authController.verifyEmail);
+router.post('/login',           authController.login);
+router.post('/forgot-password', authController.forgotPassword);
+router.post('/reset-password',  authController.resetPassword);
+router.post('/refresh-token',   authController.refreshToken);
 
-// 2. تأكيد الإيميل
-router.post('/verify-email', authLimiter, authController.verifyEmail);
-
-// 3. تسجيل الدخول
-router.post('/login', authLimiter, authController.login);
-
-// 4. نسيت كلمة المرور
-router.post('/forgot-password', authLimiter, authController.forgotPassword);
-
-// 5. إعادة تعيين كلمة المرور
-router.post('/reset-password', authLimiter, authController.resetPassword);
-
-// 6. بروفايل المستخدم
-router.get('/me', auth, authController.getUserProfile);
+router.get('/me',               auth, authController.getUserProfile);
+router.post('/logout',          auth, authController.logout);
 
 module.exports = router;

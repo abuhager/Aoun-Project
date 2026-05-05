@@ -1,34 +1,55 @@
-// routes/items.js - النسخة النهائية المحسنة
-const express = require('express');
-const router = express.Router();
-const upload = require('../middlewares/upload'); // لرفع الصور
-const auth = require('../middlewares/auth'); // مصادقة JWT
-const validateObjectId = require('../middlewares/validateObjectId'); // ✅ التحقق من ObjectId
+// routes/items.js
+// ============================================================
+// ✅ PHASE 1 — UPDATED
+// ~ GET /:id         — optionalAuth (بدل jwt مباشر في Controller)
+// + validateObjectId — على كل route تحتوي :id
+// ~ PUT /book/:id    — أضيف requireLevel2
+// ============================================================
+const express          = require('express');
+const router           = express.Router();
+const auth             = require('../middlewares/auth');
+const optionalAuth     = require('../middlewares/optionalAuth');
+const requireLevel2    = require('../middlewares/requireLevel2');
+const validateObjectId = require('../middlewares/validateObjectId');
+const itemController   = require('../controllers/itemController');
 
-// استيراد الـ controllers
-const {
-  createItem, getItems, getItemById, getMyItems, getPendingRating,
-  updateItem, deleteItem, bookItem, cancelBooking, completeDelivery, rateItem, reportUser
-} = require('../controllers/itemController');
+router.get('/',    itemController.getAllItems);
 
-// مسارات القراءة العامة (لا تحتاج auth إلا الشخصية)
-router.get('/', getItems); // جميع الغراض المتاحة
-router.get('/me', auth, getMyItems); // غراضي أنا فقط
-router.get('/pending-rating', auth, getPendingRating); // ✅ قبل /:id عشان ما يتعارض
-router.get('/:id', validateObjectId, getItemById); // غرض واحد بـ ID صالح
+router.get('/:id',
+  validateObjectId,
+  optionalAuth,
+  itemController.getItemById
+);
 
-// إنشاء وتعديل (تحتاج auth + صورة اختيارية)
-router.post('/', [auth, upload.single('image')], createItem);
-router.put('/update/:id', [auth, validateObjectId, upload.single('image')], updateItem);
-router.delete('/delete/:id', [auth, validateObjectId], deleteItem);
+router.post('/',   auth, itemController.createItem);
 
-// عمليات الحجز والتسليم (ID صالح مطلوب)
-router.put('/book/:id', [auth, validateObjectId], bookItem);
-router.put('/cancel/:id', [auth, validateObjectId], cancelBooking);
-router.put('/complete/:id', [auth, validateObjectId], completeDelivery);
-router.put('/rate/:id', [auth, validateObjectId], rateItem);
+router.put('/:id',
+  validateObjectId, auth, itemController.updateItem
+);
 
-// تبليغ (لا يحتاج ID)
-router.post('/report-user', auth, reportUser);
+router.delete('/:id',
+  validateObjectId, auth, itemController.deleteItem
+);
+
+router.get('/user/my-items', auth, itemController.getMyItems);
+
+// Level 2 فقط
+router.put('/book/:id',
+  validateObjectId, auth, requireLevel2, itemController.bookItem
+);
+
+router.put('/cancel/:id',
+  validateObjectId, auth, itemController.cancelBooking
+);
+
+router.put('/complete/:id',
+  validateObjectId, auth, itemController.completeDelivery
+);
+
+router.put('/rate/:id',
+  validateObjectId, auth, itemController.rateItem
+);
+
+router.post('/report', auth, itemController.reportUser);
 
 module.exports = router;

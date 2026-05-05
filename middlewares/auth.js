@@ -1,27 +1,33 @@
+// middlewares/auth.js
+// ============================================================
+// ✅ PHASE 1 — REFACTORED
+// الآن يقرأ Access Token من:
+//   1. Header: x-auth-token  (للـ Postman والـ Legacy clients)
+//   2. Cookie: accessToken   (httpOnly cookie — الأكثر أماناً)
+// ============================================================
 const jwt = require('jsonwebtoken');
-const User = require('../models/User'); // ← تأكد من المسار الصحيح
 
-module.exports = async function (req, res, next) {
-  const token = req.header('x-auth-token');
+module.exports = function auth(req, res, next) {
+  const headerToken = req.header('x-auth-token');
+  const cookieToken = req.cookies?.accessToken ?? null;
+
+  const token = headerToken || cookieToken;
 
   if (!token) {
-    return res.status(401).json({ msg: 'لا يوجد توكن، الدخول مرفوض 🛑' });
+    return res.status(401).json({ msg: 'لا يوجد توكن، الوصول مرفوض' });
   }
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    const user = await User.findById(decoded.user.id).select('isBanned');
-
-    if (!user || user.isBanned) {
-      return res.status(403).json({ msg: 'حسابك محظور 🚫' });
-    }
-
-    req.user = decoded.user;
+    req.user = decoded.user; // { id, role }
     next();
   } catch (err) {
-    return res
-      .status(401)
-      .json({ msg: 'التوكن غير صالح أو منتهي الصلاحية ⚠️' });
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({
+        msg: 'انتهت صلاحية الجلسة',
+        code: 'TOKEN_EXPIRED',
+      });
+    }
+    return res.status(401).json({ msg: 'توكن غير صالح' });
   }
 };

@@ -1,93 +1,115 @@
-
+// controllers/authController.js
+// ============================================================
+// ✅ PHASE 1 — REFACTORED
+// التغييرات:
+//   + httpOnly Cookies لكلا الـ Tokens
+//   + refreshToken endpoint
+//   + logout endpoint
+//   ~ getUserProfile FIX: req.user.id بدل req.params.id
+// ============================================================
 const authService = require('../services/authService');
-const {
-  validateRegister,
-  validateVerifyEmail,
-  validateLogin,
-  validateForgotPassword,
-  validateResetPassword
-} = require('../dtos/authDto');
-// ─── 1. التسجيل ───────────────────────────────────────
-exports.register = async (req, res) => {
-  const { error } = validateRegister(req.body);
-  if (error) {
-    return res.status(400).json({ msg: error.details[0].message });
-  }
 
+function setRefreshTokenCookie(res, refreshToken) {
+  res.cookie('refreshToken', refreshToken, {
+    httpOnly: true,
+    secure:   process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    maxAge:   7 * 24 * 60 * 60 * 1000,
+    path:     '/api/auth',
+  });
+}
+
+function setAccessTokenCookie(res, accessToken) {
+  res.cookie('accessToken', accessToken, {
+    httpOnly: true,
+    secure:   process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    maxAge:   15 * 60 * 1000,
+    path:     '/',
+  });
+}
+
+exports.register = async (req, res) => {
   try {
     const result = await authService.registerLogic(req.body);
-    res.status(result.statusCode).json(result.body);
+    res.status(201).json(result);
   } catch (err) {
-    console.error(err.message);
-    res.status(500).send('خطأ في السيرفر');
+    res.status(err.status || 500).json({ msg: err.msg || 'خطأ في الخادم' });
   }
 };
 
-// ─── 2. تأكيد الإيميل ────────────────────────────────
 exports.verifyEmail = async (req, res) => {
-    const { error } = validateVerifyEmail(req.body);
-    if (error) return res.status(400).json({ msg: error.details[0].message });
-
-    try {
-        const result = await authService.verifyEmailLogic(req.body);
-        res.status(result.statusCode).json(result.body);
-    } catch (err) {
-        console.error(err.message);
-        res.status(500).send('خطأ في السيرفر أثناء تفعيل الحساب');
-    }
+  try {
+    const result = await authService.verifyEmailLogic(req.body);
+    setRefreshTokenCookie(res, result.refreshToken);
+    setAccessTokenCookie(res, result.accessToken);
+    res.status(200).json({ msg: 'تم التحقق بنجاح', token: result.accessToken, user: result.user });
+  } catch (err) {
+    res.status(err.status || 500).json({ msg: err.msg || 'خطأ في الخادم' });
+  }
 };
 
-// ─── 3. تسجيل الدخول ─────────────────────────────────
 exports.login = async (req, res) => {
-  const { error } = validateLogin(req.body);
-  if (error) {
-    return res.status(400).json({ msg: error.details[0].message });
-  }
-
   try {
     const result = await authService.loginLogic(req.body);
-    res.status(result.statusCode).json(result.body);
+    setRefreshTokenCookie(res, result.refreshToken);
+    setAccessTokenCookie(res, result.accessToken);
+    res.status(200).json({ token: result.accessToken, user: result.user });
   } catch (err) {
-    console.error(err.message);
-    res.status(500).send('خطأ في السيرفر');
+    res.status(err.status || 500).json({ msg: err.msg || 'خطأ في الخادم', needsVerification: err.needsVerification || false });
   }
 };
 
-// ─── 4. بروفايل المستخدم ─────────────────────────────
+exports.refreshToken = async (req, res) => {
+  try {
+    const incomingRefreshToken = req.cookies?.refreshToken;
+    const result = await authService.refreshAccessTokenLogic(incomingRefreshToken);
+    setRefreshTokenCookie(res, result.refreshToken);
+    setAccessTokenCookie(res, result.accessToken);
+    res.status(200).json({ token: result.accessToken });
+  } catch (err) {
+    res.clearCookie('refreshToken', { path: '/api/auth' });
+    res.clearCookie('accessToken',  { path: '/' });
+    res.status(err.status || 401).json({ msg: err.msg || 'جلسة غير صالحة' });
+  }
+};
+
+exports.logout = async (req, res) => {
+  try {
+    await authService.logoutLogic(req.user.id);
+    res.clearCookie('refreshToken', { path: '/api/auth' });
+    res.clearCookie('accessToken',  { path: '/' });
+    res.status(200).json({ msg: 'تم تسجيل الخروج بنجاح' });
+  } catch (err) {
+    res.status(500).json({ msg: 'خطأ في تسجيل الخروج' });
+  }
+};
+
 exports.getUserProfile = async (req, res) => {
-    try {
-        const result = await authService.getUserProfileLogic(req.params.id);
-        res.status(result.statusCode).json(result.body);
-    } catch (err) {
-        console.error(err);
-        if (err.kind === 'ObjectId') return res.status(404).json({ msg: 'المستخدم غير موجود' });
-        res.status(500).send('خطأ في السيرفر');
-    }
+  try {
+    // ✅ FIX: كان req.params.id — الآن req.user.id
+    const user = await authService.getUserProfileLogic(req.user.id);
+    res.status(200).json(user);
+  } catch (err) {
+    res.status(err.status || 500).json({ msg: err.msg || 'خطأ في الخادم' });
+  }
 };
 
-// ─── 5. نسيت كلمة المرور ─────────────────────────────
 exports.forgotPassword = async (req, res) => {
-    const { error } = validateForgotPassword(req.body);
-    if (error) return res.status(400).json({ msg: error.details[0].message });
-
-    try {
-        const result = await authService.forgotPasswordLogic(req.body.email);
-        res.status(result.statusCode).json(result.body);
-    } catch (err) {
-        res.status(500).json({ msg: 'خطأ في السيرفر' });
-    }
+  try {
+    const result = await authService.forgotPasswordLogic(req.body.email);
+    res.status(200).json(result);
+  } catch (err) {
+    res.status(err.status || 500).json({ msg: err.msg || 'خطأ في الخادم' });
+  }
 };
 
-
-// ─── 6. إعادة تعيين كلمة المرور ──────────────────────
 exports.resetPassword = async (req, res) => {
-    const { error } = validateResetPassword(req.body);
-    if (error) return res.status(400).json({ msg: error.details[0].message });
-
-    try {
-        const result = await authService.resetPasswordLogic(req.params.token, req.body.password);
-        res.status(result.statusCode).json(result.body);
-    } catch (err) {
-        res.status(500).json({ msg: 'خطأ في السيرفر' });
-    }
+  try {
+    const { email, otp, password } = req.body;
+    const result = await authService.resetPasswordLogic(email, otp, password);
+    res.status(200).json(result);
+  } catch (err) {
+    res.status(err.status || 500).json({ msg: err.msg || 'خطأ في الخادم' });
+  }
 };
