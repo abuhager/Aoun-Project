@@ -1,86 +1,39 @@
-const mongoose = require("mongoose");
+// models/Item.js
+const mongoose = require('mongoose');
 
-const itemSchema = new mongoose.Schema(
-  {
-    title: { type: String, required: true, trim: true },
-    description: { type: String, required: true },
-    category: {
-      type:     String,
-      enum:     ["كتب", "إلكترونيات", "أثاث", "أخرى", "ملابس"],
-      required: true,
-      index:    true,
-    },
-    imageUrl:     { type: String, default: "" },
-    cloudinaryId: { type: String },
-    location: {
-      type:     String,
-      required: true,
-      index:    true,
-    },
-    condition: { type: String, default: "مستعمل ممتاز" },
-    isRated:   { type: Boolean, default: false },
-    bookedAt:  { type: Date, default: null },
+const waitlistEntrySchema = new mongoose.Schema({
+  user:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  addedAt: { type: Date, default: Date.now },
+}, { _id: false });
 
-    donor: {
-      type:     mongoose.Schema.Types.ObjectId,
-      ref:      "User",
-      required: true,
-      index:    true,
-    },
+const ItemSchema = new mongoose.Schema({
+  title:       { type: String, required: true, trim: true },
+  category:    { type: String, required: true },
+  description: { type: String, required: true },
+  location:    { type: String, required: true },
+  condition:   { type: String, enum: ['ممتاز', 'جيد', 'مقبول'], required: true },
+  imageUrl:    { type: String },
+  cloudinaryId:{ type: String },
 
-    cancelledBy: [
-      {
-        type:   mongoose.Schema.Types.ObjectId,
-        ref:    "User",
-        select: false,
-      },
-    ],
+  donor:       { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  bookedBy:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  bookedAt:    { type: Date },
 
-    bookedBy: {
-      type:    mongoose.Schema.Types.ObjectId,
-      ref:     "User",
-      default: null,
-    },
-
-    deliveryOtp: { type: String, select: false },
-
-    waitlist: [
-      {
-        user:     { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-        joinedAt: { type: Date, default: Date.now },
-      },
-    ],
-
-    reportCount: { type: Number, default: 0 },
-
-    status: {
-      type:    String,
-      enum:    ["متاح", "محجوز", "تم التسليم", "مخفي"],
-      default: "متاح",
-      index:   true,
-    },
-
-    // ✅ جديد — المرحلة 1
-    handoverMode: {
-      type:    String,
-      enum:    ["direct", "hub"],   // مباشر أو عبر مركز تسليم
-      default: "direct",
-    },
-    hubId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref:  "SafeHub",              // Model سيُنشأ في المرحلة 2
-      default: null,
-    },
-    hubDropOtp:   { type: String, select: false }, // OTP تسليم المتبرع للهاب
-    hubPickupOtp: { type: String, select: false }, // OTP استلام المستفيد من الهاب
-    rating: {
-      type:    Number,
-      min:     1,
-      max:     5,
-      default: null,                // التقييم الفعلي (للإحصائيات)
-    },
+  status: {
+    type: String,
+    enum: ['متاح', 'محجوز', 'تم التسليم', 'مخفي'],
+    default: 'متاح',
   },
-  { timestamps: true }
-);
 
-module.exports = mongoose.model("Item", itemSchema);
+  deliveryOtp: { type: String, select: false },
+
+  // تقييم المتبرع من المستلم
+  isRated:         { type: Boolean, default: false },
+  // تقييم المستلم من المتبرع ✨ جديد
+  isReceiverRated: { type: Boolean, default: false },
+
+  waitlist:    { type: [waitlistEntrySchema], default: [] },
+  cancelledBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+}, { timestamps: true });
+
+module.exports = mongoose.model('Item', ItemSchema);

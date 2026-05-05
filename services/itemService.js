@@ -278,27 +278,81 @@ exports.completeDeliveryLogic = async (itemId, userId, otp) => {
 };
 
 // ─────────────────────────────────────────
-// 8. منطق التقييم
+// 8. منطق تقييم المتبرع (من المستلم)
 // ─────────────────────────────────────────
 exports.rateItemLogic = async (itemId, userId, rating) => {
+  if (!rating || rating < 1 || rating > 10)
+    throw new Error("التقييم يجب أن يكون بين 1 و 10");
+
   const item = await Item.findById(itemId);
-  if (!item || item.bookedBy?.toString() !== userId) throw new Error("غير مصرح لك");
-  if (item.status !== "تم التسليم" || item.isRated)  throw new Error("لا يمكن التقييم الآن");
+  if (!item) throw new Error("الغرض غير موجود");
+  if (item.bookedBy?.toString() !== userId.toString())
+    throw new Error("غير مصرح لك — أنت لست الحاجز");
+  if (item.status !== "تم التسليم")
+    throw new Error("لا يمكن التقييم قبل إتمام التسليم");
+  if (item.isRated)
+    throw new Error("لقد قيّمت هذا الغرض مسبقاً 🚫");
 
   const donor  = await User.findById(item.donor);
-  const points = rating >= 5 ? 5 : rating >= 3 ? 2 : -5;
+  if (!donor) throw new Error("المتبرع غير موجود");
+
+  // نظام النقاط: 8-10 = +5 | 5-7 = +2 | 1-4 = -5
+  const points = rating >= 8 ? 5 : rating >= 5 ? 2 : -5;
   donor.trustScore = Math.min(100, Math.max(0, (donor.trustScore || 85) + points));
   item.isRated = true;
 
   await Promise.all([item.save(), donor.save()]);
-  return { msg: "تم التقييم 🌟", trustScore: donor.trustScore };
+  return { msg: "تم تقييم المتبرع 🌟", trustScore: donor.trustScore };
 };
 
 // ─────────────────────────────────────────
-// 9. منطق التبليغ
+// 8b. منطق تقييم المستلم (من المتبرع)
 // ─────────────────────────────────────────
-exports.reportUserLogic = async (reportedUserId, reporterId) => {
-  if (reporterId === reportedUserId) throw new Error("لا يمكنك التبليغ عن نفسك");
+exports.rateReceiverLogic = async (itemId, donorId, rating) => {
+  if (!rating || rating < 1 || rating > 10)
+    throw new Error("التقييم يجب أن يكون بين 1 و 10");
+
+  const item = await Item.findById(itemId);
+  if (!item) throw new Error("الغرض غير موجود");
+  if (item.donor?.toString() !== donorId.toString())
+    throw new Error("غير مصرح لك — أنت لست المتبرع");
+  if (item.status !== "تم التسليم")
+    throw new Error("لا يمكن التقييم قبل إتمام التسليم");
+  if (!item.bookedBy)
+    throw new Error("لا يوجد مستلم لهذا الغرض");
+  if (item.isReceiverRated)
+    throw new Error("لقد قيّمت المستلم مسبقاً 🚫");
+
+  const receiver = await User.findById(item.bookedBy);
+  if (!receiver) throw new Error("المستلم غير موجود");
+
+  // نفس نظام النقاط
+  const points = rating >= 8 ? 5 : rating >= 5 ? 2 : -5;
+  receiver.trustScore = Math.min(100, Math.max(0, (receiver.trustScore || 85) + points));
+  item.isReceiverRated = true;
+
+  await Promise.all([item.save(), receiver.save()]);
+  return { msg: "تم تقييم المستلم 🌟", trustScore: receiver.trustScore };
+};
+
+// ─────────────────────────────────────────
+// 9. منطق التبليغ (مع ربط الغرض للتحقق)
+// ─────────────────────────────────────────
+exports.reportUserLogic = async (reportedUserId, reporterId, itemId) => {
+  if (reporterId === reportedUserId)
+    throw new Error("لا يمكنك التبليغ عن نفسك");
+
+  // تحقق أن العلاقة حقيقية عبر الغرض (إن أُرسل)
+  if (itemId) {
+    const item = await Item.findById(itemId);
+    if (!item || item.status !== "تم التسليم")
+      throw new Error("لا يمكن التبليغ إلا بعد إتمام التسليم");
+
+    const isDonor    = item.donor?.toString()    === reporterId;
+    const isReceiver = item.bookedBy?.toString() === reporterId;
+    if (!isDonor && !isReceiver)
+      throw new Error("غير مصرح لك — لا علاقة لك بهذا الغرض");
+  }
 
   const user = await User.findById(reportedUserId);
   if (!user) throw new Error("المستخدم غير موجود");

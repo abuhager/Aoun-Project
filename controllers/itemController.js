@@ -25,7 +25,6 @@ exports.getMyItems = async (req, res) => {
 
 exports.getItemById = async (req, res) => {
     try {
-        // optionalAuth يضع req.user إذا وجد token صحيح
         const requesterId = req.user?.id || req.user?._id || null;
         const result = await itemService.getItemByIdLogic(req.params.id, requesterId);
         res.json(result);
@@ -80,6 +79,7 @@ exports.completeDelivery = async (req, res) => {
     }
 };
 
+// تقييم المتبرع (من المستلم)
 exports.rateItem = async (req, res) => {
     try {
         const result = await itemService.rateItemLogic(req.params.id, req.user.id, req.body.rating);
@@ -89,9 +89,24 @@ exports.rateItem = async (req, res) => {
     }
 };
 
+// تقييم المستلم (من المتبرع)
+exports.rateReceiver = async (req, res) => {
+    try {
+        const result = await itemService.rateReceiverLogic(req.params.id, req.user.id, req.body.rating);
+        res.json(result);
+    } catch (err) {
+        res.status(400).json({ msg: err.message || 'خطأ في تقييم المستلم' });
+    }
+};
+
+// التبليغ (للطرفين)
 exports.reportUser = async (req, res) => {
     try {
-        const result = await itemService.reportUserLogic(req.body.reportedUserId, req.user.id.toString());
+        const result = await itemService.reportUserLogic(
+          req.body.reportedUserId,
+          req.user.id.toString(),
+          req.body.itemId   // اختياري — للتحقق أن العلاقة حقيقية
+        );
         res.json(result);
     } catch (err) {
         res.status(400).json({ msg: err.message || 'خطأ في البلاغ' });
