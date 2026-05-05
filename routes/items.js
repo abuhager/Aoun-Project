@@ -1,9 +1,7 @@
 // routes/items.js
 // ============================================================
-// ✅ PHASE 1 — UPDATED
-// ~ GET /:id         — optionalAuth (بدل jwt مباشر في Controller)
-// + validateObjectId — على كل route تحتوي :id
-// ~ PUT /book/:id    — أضيف requireLevel2
+// ✅ PHASE 1 — FIXED: getAllItems → getItems
+// تم مطابقة أسماء exports مع itemController.js
 // ============================================================
 const express          = require('express');
 const router           = express.Router();
@@ -13,43 +11,74 @@ const requireLevel2    = require('../middlewares/requireLevel2');
 const validateObjectId = require('../middlewares/validateObjectId');
 const itemController   = require('../controllers/itemController');
 
-router.get('/',    itemController.getAllItems);
+// ─── Public Routes ────────────────────────────────────────────
+router.get('/', itemController.getItems);
 
+// ⚠️ مهم: هذا الـ route جب يكون قبل '/:id' لتجنب conflict
+router.get('/user/my-items',
+  auth,
+  itemController.getMyItems
+);
+
+router.get('/pending-rating',
+  auth,
+  itemController.getPendingRating
+);
+
+// GET single item - optionalAuth بدل jwt.verify في Controller
 router.get('/:id',
   validateObjectId,
   optionalAuth,
   itemController.getItemById
 );
 
-router.post('/',   auth, itemController.createItem);
+// ─── Protected — Level 1+ (Email Verified) ──────────────────
+router.post('/',
+  auth,
+  itemController.createItem
+);
 
 router.put('/:id',
-  validateObjectId, auth, itemController.updateItem
+  validateObjectId,
+  auth,
+  itemController.updateItem
 );
 
 router.delete('/:id',
-  validateObjectId, auth, itemController.deleteItem
+  validateObjectId,
+  auth,
+  itemController.deleteItem
 );
 
-router.get('/user/my-items', auth, itemController.getMyItems);
+router.post('/report',
+  auth,
+  itemController.reportUser
+);
 
-// Level 2 فقط
+// ─── Protected — Level 2+ (Verified + WhatsApp or University) ───
 router.put('/book/:id',
-  validateObjectId, auth, requireLevel2, itemController.bookItem
+  validateObjectId,
+  auth,
+  requireLevel2,
+  itemController.bookItem
 );
 
 router.put('/cancel/:id',
-  validateObjectId, auth, itemController.cancelBooking
+  validateObjectId,
+  auth,
+  itemController.cancelBooking
 );
 
 router.put('/complete/:id',
-  validateObjectId, auth, itemController.completeDelivery
+  validateObjectId,
+  auth,
+  itemController.completeDelivery
 );
 
 router.put('/rate/:id',
-  validateObjectId, auth, itemController.rateItem
+  validateObjectId,
+  auth,
+  itemController.rateItem
 );
-
-router.post('/report', auth, itemController.reportUser);
 
 module.exports = router;
