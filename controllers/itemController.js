@@ -2,48 +2,38 @@
 const itemService = require('../services/itemService');
 const { validateCreateItem } = require('../dtos/itemDto');
 
-// 1. جلب كل التبرعات مع Pagination
-
 exports.getItems = async (req, res) => {
     try {
         const result = await itemService.getItemsLogic(req.query);
-        res.json(result); // بترجع items, total, page, pages
+        res.json(result);
     } catch (err) {
         console.error("Pagination Error:", err.message);
         res.status(500).json({ msg: 'خطأ في السيرفر أثناء جلب الأغراض' });
     }
 };
+
 exports.getMyItems = async (req, res) => {
     try {
-        // نستخدم id أو _id لضمان استخراج المعرف من التوكن
         const userId = req.user.id || req.user._id;
-        
-        // استدعاء الخدمة (Service) التي تتعامل مع البيانات
         const result = await itemService.getMyItemsLogic(userId);
-        
         res.json(result);
     } catch (err) {
-        console.error("🔥 Error in getMyItems Controller:", err.message); 
+        console.error("🔥 Error in getMyItems Controller:", err.message);
         res.status(500).json({ msg: 'خطأ في السيرفر أثناء جلب بياناتي' });
     }
 };
+
 exports.getItemById = async (req, res) => {
     try {
         let requesterId = null;
         const authHeader = req.header('x-auth-token');
-
-        // قراءة التوكن يدوياً لأنه مسار عام (Public Route) بس بدنا نعرف مين الي فات
         if (authHeader) {
             try {
                 const jwt = require('jsonwebtoken');
                 const decoded = jwt.verify(authHeader, process.env.JWT_SECRET);
-                // هون كان في مشكلة بكودك القديم، رح نضبطها هيك:
-                requesterId = decoded.user.id || decoded.user._id; 
-            } catch (error) { 
-                // توكن خربان أو منتهي، بنتجاهله وبنعتبره زائر عادي
-            }
+                requesterId = decoded.user.id || decoded.user._id;
+            } catch (error) {}
         }
-
         const result = await itemService.getItemByIdLogic(req.params.id, requesterId);
         res.json(result);
     } catch (err) {
@@ -52,21 +42,20 @@ exports.getItemById = async (req, res) => {
     }
 };
 
-// 4. إضافة غرض
 exports.createItem = async (req, res) => {
+  // ✅ DEBUG — سيُحذف بعد حل المشكلة
+  console.log('📋 [createItem] Content-Type :', req.headers['content-type']);
+  console.log('📋 [createItem] req.body     :', req.body);
+  console.log('📋 [createItem] req.file     :', req.file ? `✅ وصل (${req.file.originalname}, ${req.file.size} bytes)` : '❌ undefined');
+
   try {
     const { error } = validateCreateItem(req.body);
     if (error) {
       return res.status(400).json({ success: false, message: error.details[0].message });
     }
 
-    console.log('🔍 req.user in createItem:', req.user);  // ← سطر مهم
-
     const userId = req.user.id || req.user._id;
-    console.log('🔍 userId passed to service:', userId);   // ← سطر مهم
-
     const result = await itemService.createItemLogic(req.body, userId, req.file);
-
     res.status(201).json({ success: true, ...result });
   } catch (error) {
     console.error('Create item error:', error);
@@ -74,21 +63,15 @@ exports.createItem = async (req, res) => {
   }
 };
 
-// 5. حجز غرض
-
 exports.bookItem = async (req, res) => {
   try {
-    const userId = req.user.id || req.user._id;   // ✅ نفس النمط اللي استخدمناه في createItem
-
+    const userId = req.user.id || req.user._id;
     const result = await itemService.bookItemLogic(req.params.id, userId);
-
     res.status(200).json({ success: true, ...result });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
   }
 };
-
-
 
 exports.cancelBooking = async (req, res) => {
     try {
@@ -144,6 +127,7 @@ exports.deleteItem = async (req, res) => {
         res.status(401).json({ msg: err.message || 'خطأ في الحذف' });
     }
 };
+
 exports.getPendingRating = async (req, res) => {
   try {
     const result = await itemService.getPendingRatingLogic(req.user.id);
