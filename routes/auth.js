@@ -1,7 +1,7 @@
 const express        = require('express');
 const router         = express.Router();
 const auth           = require('../middlewares/auth');
-const authController = require('../controllers/authController'); // ✅ ناقص هذا
+const authController = require('../controllers/authController');
 const { globalLimiter, authLimiter } = require('../middlewares/rateLimiter');
 
 // 1. التسجيل
@@ -19,7 +19,10 @@ router.post('/forgot-password', authLimiter, authController.forgotPassword);
 // 5. إعادة تعيين كلمة المرور
 router.post('/reset-password', authLimiter, authController.resetPassword);
 
-// 6. بروفايل المستخدم
+// 6. بروفايل المستخدم الخاص (يتطلب تسجيل دخول)
 router.get('/me', auth, authController.getUserProfile);
+
+// 7. ✅ بروفايل عام لأي مستخدم (بدون تسجيل دخول)
+router.get('/profile/:id', globalLimiter, authController.getPublicProfile);
 
 module.exports = router;

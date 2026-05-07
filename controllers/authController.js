@@ -6,8 +6,9 @@ const {
   validateForgotPassword,
   validateResetPassword
 } = require('../dtos/authDto');
+const mongoose = require('mongoose');
 
-// ─── 1. التسجيل ───────────────────────────────────────
+// ─── 1. التسجيل ────────────────────────────────────────
 exports.register = async (req, res) => {
   const { error } = validateRegister(req.body);
   if (error) return res.status(400).json({ msg: error.details[0].message });
@@ -20,7 +21,7 @@ exports.register = async (req, res) => {
   }
 };
 
-// ─── 2. تأكيد الإيميل ────────────────────────────────
+// ─── 2. تأكيد الإيميل ─────────────────────────────────
 exports.verifyEmail = async (req, res) => {
   const { error } = validateVerifyEmail(req.body);
   if (error) return res.status(400).json({ msg: error.details[0].message });
@@ -33,7 +34,7 @@ exports.verifyEmail = async (req, res) => {
   }
 };
 
-// ─── 3. تسجيل الدخول ─────────────────────────────────
+// ─── 3. تسجيل الدخول ──────────────────────────────────
 exports.login = async (req, res) => {
   const { error } = validateLogin(req.body);
   if (error) return res.status(400).json({ msg: error.details[0].message });
@@ -46,21 +47,32 @@ exports.login = async (req, res) => {
   }
 };
 
-// ─── 4. بروفايل المستخدم ─────────────────────────────
-// ✅ الإصلاح: استخدام req.user.id (من الـ auth middleware) بدلاً من req.params.id
+// ─── 4. بروفايل المستخدم الخاص (GET /me) ───────────────
 exports.getUserProfile = async (req, res) => {
   try {
-    const userId = req.user.id;          // ← الإصلاح هنا
-    const result = await authService.getUserProfileLogic(userId);
+    const result = await authService.getUserProfileLogic(req.user.id);
     res.status(result.statusCode).json(result.body);
   } catch (err) {
     console.error(err);
-    if (err.kind === 'ObjectId') return res.status(404).json({ msg: 'المستخدم غير موجود' });
     res.status(500).send('خطأ في السيرفر');
   }
 };
 
-// ─── 5. نسيت كلمة المرور ─────────────────────────────
+// ─── 5. بروفايل عام (GET /profile/:id) ─────────────────────
+exports.getPublicProfile = async (req, res) => {
+  // ✅ validate ObjectId قبل الاستعلام
+  if (!mongoose.Types.ObjectId.isValid(req.params.id))
+    return res.status(400).json({ msg: 'معرف المستخدم غير صحيح' });
+  try {
+    const result = await authService.getPublicProfileLogic(req.params.id);
+    res.status(result.statusCode).json(result.body);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ msg: 'خطأ في السيرفر' });
+  }
+};
+
+// ─── 6. نسيت كلمة المرور ────────────────────────────────
 exports.forgotPassword = async (req, res) => {
   const { error } = validateForgotPassword(req.body);
   if (error) return res.status(400).json({ msg: error.details[0].message });
@@ -72,7 +84,7 @@ exports.forgotPassword = async (req, res) => {
   }
 };
 
-// ─── 6. إعادة تعيين كلمة المرور ──────────────────────
+// ─── 7. إعادة تعيين كلمة المرور ──────────────────────────
 exports.resetPassword = async (req, res) => {
   const { error } = validateResetPassword(req.body);
   if (error) return res.status(400).json({ msg: error.details[0].message });
