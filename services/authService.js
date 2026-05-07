@@ -12,6 +12,20 @@ const generateToken = (user) => {
   return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
 };
 
+/** يحوّل رقم الهاتف إلى صيغة wa.me الدولية */
+const formatPhone = (phone = '') => {
+  const digits = phone.replace(/\D/g, '');
+  if (!digits) return null;
+  // لو بدأ بـ  00 أزلها
+  if (digits.startsWith('00')) return digits.slice(2);
+  // لو بدأ بـ 0 (07x أردني) ، أضف 962
+  if (digits.startsWith('0'))  return '962' + digits.slice(1);
+  // لو بدأ بـ 7 (بدون صفر) ، أضف 962
+  if (digits.startsWith('7'))  return '962' + digits;
+  // غير ذلك (خليه كما هو — ربما فيه كود دولة مسبقاً)
+  return digits;
+};
+
 // ─── 1. منطق التسجيل ─────────────────────────────────────────
 exports.registerLogic = async ({ name, email, password, phone }) => {
   let user = await userRepository.findByEmail(email);
@@ -106,7 +120,7 @@ exports.getUserProfileLogic = async (userId) => {
   };
 };
 
-// ─── 5. ✅ بروفايل عام (GET /profile/:id) — بيانات آمنة فقط ──────
+// ─── 5. ✅ بروفايل عام (GET /profile/:id) ─────────────────────
 exports.getPublicProfileLogic = async (userId) => {
   const [user, allDonations, completedRequests, totalRatings] = await Promise.all([
     userRepository.findById(userId),
@@ -125,7 +139,6 @@ exports.getPublicProfileLogic = async (userId) => {
   return {
     statusCode: 200,
     body: {
-      // ✅ بيانات آمنة فقط — لا email لا phone لا password
       user: {
         name:               user.name,
         avatar:             user.avatar,
@@ -133,6 +146,8 @@ exports.getPublicProfileLogic = async (userId) => {
         totalDonations:     user.totalDonations,
         isVerifiedStudent:  user.isVerifiedStudent,
         createdAt:          user.createdAt,
+        // ✅ رقم الواتس منسق تلقائياً لـ wa.me
+        whatsapp:           formatPhone(user.phone),
       },
       stats: {
         donationsCount: allDonations.length,
