@@ -27,18 +27,22 @@ const generateRefreshToken = (user) => {
 
 const isProduction = process.env.NODE_ENV === 'production';
 
-// ✅ sameSite: 'lax' + path: '/' يحل cross-origin cookie في localhost
-// لأن Next.js proxy (rewrites) يخلي الطلبات same-origin
 const REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
   secure: isProduction,
   sameSite: isProduction ? 'none' : 'lax',
+  secure: isProduction,
+  sameSite: isProduction ? 'none' : 'lax',
   maxAge: 7 * 24 * 60 * 60 * 1000,
+  path: '/',
   path: '/',
 };
 
 const CLEAR_REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
+  secure: isProduction,
+  sameSite: isProduction ? 'none' : 'lax',
+  path: '/',
   secure: isProduction,
   sameSite: isProduction ? 'none' : 'lax',
   path: '/',

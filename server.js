@@ -9,7 +9,11 @@ require('dotenv').config();
 
 const app = express();
 
-app.use(helmet());
+app.use(
+  helmet({
+    crossOriginResourcePolicy: false,
+  })
+);
 app.use(cookieParser());
 
 app.use('/api/', globalLimiter);
