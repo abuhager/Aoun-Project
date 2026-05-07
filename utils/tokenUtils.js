@@ -25,19 +25,21 @@ const generateRefreshToken = (user) => {
   });
 };
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 const REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'strict',
+  secure: isProduction,
+  sameSite: isProduction ? 'none' : 'lax',
   maxAge: 7 * 24 * 60 * 60 * 1000,
-  path: '/api/auth',
+  path: '/',
 };
 
 const CLEAR_REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'strict',
-  path: '/api/auth',
+  secure: isProduction,
+  sameSite: isProduction ? 'none' : 'lax',
+  path: '/',
 };
 
 module.exports = {
