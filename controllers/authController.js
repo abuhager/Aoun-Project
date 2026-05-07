@@ -12,6 +12,7 @@ const {
   CLEAR_REFRESH_COOKIE_OPTIONS,
 } = require('../utils/tokenUtils');
 
+// ─── 1. التسجيل ────────────────────────────────────────
 exports.register = async (req, res) => {
   const { error } = validateRegister(req.body);
   if (error) return res.status(400).json({ msg: error.details[0].message });
@@ -25,6 +26,7 @@ exports.register = async (req, res) => {
   }
 };
 
+// ─── 2. تأكيد الإيميل ─────────────────────────────────
 exports.verifyEmail = async (req, res) => {
   const { error } = validateVerifyEmail(req.body);
   if (error) return res.status(400).json({ msg: error.details[0].message });
@@ -38,6 +40,7 @@ exports.verifyEmail = async (req, res) => {
   }
 };
 
+// ─── 3. تسجيل الدخول ──────────────────────────────────
 exports.login = async (req, res) => {
   const { error } = validateLogin(req.body);
   if (error) return res.status(400).json({ msg: error.details[0].message });
@@ -45,7 +48,7 @@ exports.login = async (req, res) => {
   try {
     const result = await authService.loginLogic(req.body);
 
-    // ✅ ازرع الكوكي لو اللوجين نجح
+    // ازرع الكوكي لو اللوجين نجح
     if (result.statusCode === 200 && result.refreshToken) {
       res.cookie('refreshToken', result.refreshToken, REFRESH_COOKIE_OPTIONS);
     }
@@ -57,6 +60,7 @@ exports.login = async (req, res) => {
   }
 };
 
+// ─── 4. بروفايل المستخدم الخاص (GET /me) ───────────────
 exports.getUserProfile = async (req, res) => {
   try {
     const result = await authService.getUserProfileLogic(req.user.id);
@@ -67,10 +71,10 @@ exports.getUserProfile = async (req, res) => {
   }
 };
 
+// ─── 5. بروفايل عام (GET /profile/:id) ─────────────────────
 exports.getPublicProfile = async (req, res) => {
-  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id))
     return res.status(400).json({ msg: 'معرف المستخدم غير صحيح' });
-  }
 
   try {
     const result = await authService.getPublicProfileLogic(req.params.id);
@@ -81,6 +85,7 @@ exports.getPublicProfile = async (req, res) => {
   }
 };
 
+// ─── 6. نسيت كلمة المرور ────────────────────────────────
 exports.forgotPassword = async (req, res) => {
   const { error } = validateForgotPassword(req.body);
   if (error) return res.status(400).json({ msg: error.details[0].message });
@@ -93,6 +98,7 @@ exports.forgotPassword = async (req, res) => {
   }
 };
 
+// ─── 7. إعادة تعيين كلمة المرور ──────────────────────────
 exports.resetPassword = async (req, res) => {
   const { error } = validateResetPassword(req.body);
   if (error) return res.status(400).json({ msg: error.details[0].message });
@@ -108,9 +114,8 @@ exports.resetPassword = async (req, res) => {
   }
 };
 
+// ─── 8. refreshToken ─────────────────────────────────────
 exports.refreshToken = async (req, res) => {
-  console.log('🍪 headers.cookie:', req.headers.cookie);
-  console.log('🍪 req.cookies:', req.cookies);
   try {
     const result = await authService.refreshTokenLogic(req.cookies?.refreshToken);
 
@@ -130,6 +135,7 @@ exports.refreshToken = async (req, res) => {
   }
 };
 
+// ─── 9. logout ───────────────────────────────────────────
 exports.logout = async (req, res) => {
   try {
     const result = await authService.logoutLogic(req.user.id);

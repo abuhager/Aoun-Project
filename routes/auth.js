@@ -1,6 +1,6 @@
-const express = require('express');
-const router = express.Router();
-const auth = require('../middlewares/auth');
+const express       = require('express');
+const router        = express.Router();
+const auth          = require('../middlewares/auth');
 const authController = require('../controllers/authController');
 const { globalLimiter, authLimiter } = require('../middlewares/rateLimiter');
 
@@ -25,7 +25,7 @@ router.get('/me', auth, authController.getUserProfile);
 // بروفايل عام
 router.get('/profile/:id', globalLimiter, authController.getPublicProfile);
 
-// refresh
+// refresh (بدون auth middleware)
 router.post('/refresh', authLimiter, authController.refreshToken);
 
 // logout

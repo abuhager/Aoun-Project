@@ -1,4 +1,4 @@
-// backend/services/itemService.js ✅ النسخة المحسّنة
+// backend/services/itemService.js
 
 const itemRepository = require("../repositories/itemRepository");
 const User = require("../models/User");
@@ -7,21 +7,18 @@ const sendEmail = require("../utils/sendEmail");
 const { generateOtp } = require("../utils/otp");
 const cloudinary = require("cloudinary").v2;
 
-// إعداد Cloudinary
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key:    process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// ✅ [تحسين 1] دالة مركزية لإرسال الإيميل بدون await + تسجيل الأخطاء
 function fireSendEmail(options) {
   sendEmail(options).catch(err =>
     console.error(`[Email Error] to: ${options.email} | subject: "${options.subject}" |`, err.message)
   );
 }
 
-// دالة مساعدة لرفع الصور على Cloudinary
 function uploadToCloudinary(buffer) {
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
@@ -81,14 +78,13 @@ exports.bookItemLogic = async (itemId, userId) => {
   );
 
   if (!user) {
-    // لو الكوتا 0 → تراجع عن الحجز
     await Item.findByIdAndUpdate(itemId, {
       $set: { status: "متاح", bookedBy: null, deliveryOtp: null, bookedAt: null },
     });
     throw new Error("عذراً، لقد استنفدت حصتك (الكوتا) لهذا الشهر.");
   }
 
-  // 6️⃣ إيميل
+  // 6️⃣ إيميل — OTP يُرسل بالإيميل فقط، لا يُرجع في الـ response
   fireSendEmail({
     email:   user.email,
     subject: `تأكيد حجز: ${bookedItem.title} 🎁`,
@@ -97,12 +93,17 @@ exports.bookItemLogic = async (itemId, userId) => {
               <p>لديك 72 ساعة لإتمام الاستلام ⏱️</p></div>`,
   });
 
+  // ✅ لا نُرجع OTP في الـ response
+  const safeItem = bookedItem.toObject ? bookedItem.toObject() : { ...bookedItem };
+  delete safeItem.deliveryOtp;
+
   return {
     status:  "booked",
     message: "تم الحجز بنجاح. تحقق من بريدك الإلكتروني للحصول على رمز الاستلام 📧",
-    item:    bookedItem,
+    item:    safeItem,
   };
 };
+
 // ─────────────────────────────────────────
 // 2. منطق إضافة غرض جديد
 // ─────────────────────────────────────────
@@ -112,15 +113,15 @@ exports.createItemLogic = async (itemData, userId, file) => {
   const uploadResult = await uploadToCloudinary(file.buffer);
 
   const newItemData = {
-    title: itemData.title,
-    category: itemData.category,
-    description: itemData.description,
-    location: itemData.location,
-    condition: itemData.condition,
-    imageUrl: uploadResult.secure_url,
+    title:        itemData.title,
+    category:     itemData.category,
+    description:  itemData.description,
+    location:     itemData.location,
+    condition:    itemData.condition,
+    imageUrl:     uploadResult.secure_url,
     cloudinaryId: uploadResult.public_id,
-    donor: userId,
-    status: "متاح",
+    donor:        userId,
+    status:       "متاح",
   };
 
   const createdItem = await itemRepository.createItem(newItemData);
@@ -150,6 +151,7 @@ exports.getItemsLogic = async (queryFilters) => {
 
 // ─────────────────────────────────────────
 // 4. منطق جلب الأغراض الشخصية
+// ✅ OTP لا يُرجع في الـ response — يُرسل بالإيميل فقط
 // ─────────────────────────────────────────
 exports.getMyItemsLogic = async (userId) => {
   const [user, donations, requests] = await Promise.all([
@@ -160,16 +162,17 @@ exports.getMyItemsLogic = async (userId) => {
     itemRepository.findRequestsByUser(userId),
   ]);
 
+  // ✅ نحذف deliveryOtp من كل item قبل الإرجاع
+  const stripOtp = (i) => {
+    const obj = i.toObject ? i.toObject() : { ...i };
+    delete obj.deliveryOtp;
+    return obj;
+  };
+
   return {
     user,
-    myDonations: donations.map((i) => ({
-      ...i,
-      otp: i.status === "محجوز" ? i.deliveryOtp : undefined,
-    })),
-    myRequests: requests.map((i) => ({
-      ...i,
-      otp: i.status === "محجوز" ? i.deliveryOtp : undefined,
-    })),
+    myDonations: donations.map(stripOtp),
+    myRequests:  requests.map(stripOtp),
   };
 };
 
@@ -181,9 +184,8 @@ exports.getItemByIdLogic = async (itemId, requesterId) => {
   if (!item) throw new Error("الغرض غير موجود");
 
   const itemObj = item.toObject();
-  if (!requesterId || itemObj.bookedBy?.toString() !== requesterId) {
-    delete itemObj.deliveryOtp;
-  }
+  // ✅ لا أحد يرى الـ OTP في الـ response — يُرسل بالإيميل فقط
+  delete itemObj.deliveryOtp;
 
   return itemObj;
 };
@@ -201,7 +203,7 @@ exports.cancelBookingLogic = async (itemId, userId) => {
 
   if (!isBooker && !isDonor && !inWait) throw new Error("غير مصرح لك");
 
-  // الانسحاب من الانتظار فقط
+  // الانسحاب من الانتظار فقط (الطابور لا يخصم كوتا → لا نُرجع شيئاً)
   if (inWait && !isBooker && !isDonor) {
     await Item.findByIdAndUpdate(item._id, {
       $pull: { waitlist: { user: userId } },
@@ -239,17 +241,18 @@ exports.cancelBookingLogic = async (itemId, userId) => {
       const newOtp = generateOtp();
       await Item.findByIdAndUpdate(item._id, {
         $set: {
-          status: "محجوز",
-          bookedBy: nextValidUser._id,
+          status:      "محجوز",
+          bookedBy:    nextValidUser._id,
           deliveryOtp: newOtp,
-          bookedAt: new Date(),
+          bookedAt:    new Date(),
         },
         $addToSet: { cancelledBy: item.bookedBy },
-        $pull: { waitlist: { user: nextValidUser._id } },
+        $pull:     { waitlist: { user: nextValidUser._id } },
       });
 
+      // ✅ OTP يُرسل بالإيميل فقط
       fireSendEmail({
-        email: nextValidUser.email,
+        email:   nextValidUser.email,
         subject: `الدور وصلك في "عون" 🎉`,
         message: `<div dir="rtl">أصبح الغرض محجوزاً لك! رمز الاستلام: <b>${newOtp}</b><p>لديك 72 ساعة لإتمام الاستلام ⏱️</p></div>`,
       });
@@ -259,7 +262,7 @@ exports.cancelBookingLogic = async (itemId, userId) => {
 
   // لا يوجد منتظرون — الغرض يعود متاحاً
   await Item.findByIdAndUpdate(item._id, {
-    $set: { status: "متاح", bookedBy: null, deliveryOtp: null, bookedAt: null },
+    $set:      { status: "متاح", bookedBy: null, deliveryOtp: null, bookedAt: null },
     $addToSet: { cancelledBy: item.bookedBy },
   });
   return { msg: "تم إلغاء الحجز والقطعة متاحة الآن ✅" };
@@ -267,6 +270,7 @@ exports.cancelBookingLogic = async (itemId, userId) => {
 
 // ─────────────────────────────────────────
 // 7. منطق إتمام التسليم
+// ✅ يزيد totalDonations للمتبرع عند كل تسليم ناجح
 // ─────────────────────────────────────────
 exports.completeDeliveryLogic = async (itemId, userId, otp) => {
   const item = await itemRepository.findItemForAction(itemId);
@@ -274,39 +278,60 @@ exports.completeDeliveryLogic = async (itemId, userId, otp) => {
   if (String(item.deliveryOtp).trim() !== String(otp).trim())
     throw new Error("الرمز خطأ ❌");
 
-  item.status     = "تم التسليم";
+  item.status      = "تم التسليم";
   item.deliveryOtp = undefined;
   item.bookedAt    = undefined;
   await item.save();
 
+  // ✅ زيادة totalDonations للمتبرع بشكل atomic
+  await User.findByIdAndUpdate(item.donor, { $inc: { totalDonations: 1 } });
+
   const receiver = await User.findById(item.bookedBy);
   if (receiver)
     fireSendEmail({
-      email: receiver.email,
+      email:   receiver.email,
       subject: `تم استلام الغرض 🎁`,
       message: `<div dir="rtl">شكراً لك! لقد تم تأكيد استلامك للغرض. لا تنسَ تقييم المتبرع لدعمه 💚</div>`,
     });
 
-  return { msg: "تم التسليم! 💚", item };
+  const safeItem = item.toObject ? item.toObject() : { ...item };
+  delete safeItem.deliveryOtp;
+  return { msg: "تم التسليم! 💚", item: safeItem };
 };
 
 // ─────────────────────────────────────────
 // 8. منطق التقييم
+// ✅ نظام نقاط واضح: 5★=+5 | 3-4★=+2 | 1-2★=-3
 // ─────────────────────────────────────────
 exports.rateItemLogic = async (itemId, userId, rating) => {
   const item = await Item.findById(itemId);
 
-  // ✅ [تحسين 2] Optional chaining لتفادي TypeError إذا كانت bookedBy فارغة
-  if (!item || item.bookedBy?.toString() !== userId) throw new Error("غير مصرح لك");
-  if (item.status !== "تم التسليم" || item.isRated)  throw new Error("لا يمكن التقييم الآن");
+  if (!item || item.bookedBy?.toString() !== userId)
+    throw new Error("غير مصرح لك");
+  if (item.status !== "تم التسليم" || item.isRated)
+    throw new Error("لا يمكن التقييم الآن");
 
-  const donor  = await User.findById(item.donor);
-  const points = rating >= 5 ? 5 : rating >= 3 ? 2 : -5;
-  donor.trustScore = Math.min(100, Math.max(0, (donor.trustScore || 85) + points));
-  item.isRated = true;
+  // ✅ نظام نقاط واضح ومتوقع
+  let points;
+  if      (rating === 5)           points = +5;
+  else if (rating >= 3)            points = +2;
+  else                             points = -3;
 
-  await Promise.all([item.save(), donor.save()]);
-  return { msg: "تم التقييم 🌟", trustScore: donor.trustScore };
+  const donor = await User.findByIdAndUpdate(
+    item.donor,
+    { $inc: { trustScore: points } },
+    { new: true }
+  );
+
+  // clamp 0–100
+  if (donor.trustScore > 100) await User.findByIdAndUpdate(item.donor, { $set: { trustScore: 100 } });
+  if (donor.trustScore < 0)   await User.findByIdAndUpdate(item.donor, { $set: { trustScore: 0  } });
+
+  await Item.findByIdAndUpdate(itemId, {
+    $set: { isRated: true, rating }
+  });
+
+  return { msg: "تم التقييم 🌟", trustScore: Math.min(100, Math.max(0, donor.trustScore)) };
 };
 
 // ─────────────────────────────────────────
@@ -341,7 +366,6 @@ exports.updateItemLogic = async (itemId, userId, updateData, file) => {
   if (!item) throw new Error("الغرض غير موجود أو لا تملك صلاحية تعديله");
 
   if (file) {
-    // حذف الصورة القديمة أولاً لتوفير المساحة
     if (item.cloudinaryId) {
       await cloudinary.uploader.destroy(item.cloudinaryId).catch(console.error);
     }
@@ -363,13 +387,11 @@ exports.deleteItemLogic = async (itemId, userId, userRole) => {
   if (!item || (item.donor.toString() !== userId && userRole !== "admin"))
     throw new Error("غير مصرح لك بحذف هذا الغرض");
 
-  // حذف الصورة من Cloudinary
   if (item.cloudinaryId) {
     await cloudinary.uploader.destroy(item.cloudinaryId).catch(console.error);
   }
 
   if (item.status === "محجوز" && item.bookedBy) {
-    // ✅ [تحسين 3] Promise.all لأن العمليتين مستقلتان — أسرع بالتوازي
     const [receiver] = await Promise.all([
       User.findByIdAndUpdate(item.bookedBy, { $inc: { quota: 1 } }, { new: true }),
       User.findByIdAndUpdate(item.donor,    { $inc: { trustScore: -3 } }),
@@ -377,7 +399,7 @@ exports.deleteItemLogic = async (itemId, userId, userRole) => {
 
     if (receiver)
       fireSendEmail({
-        email: receiver.email,
+        email:   receiver.email,
         subject: `تحديث بخصوص حجزك ⚠️`,
         message: `<div dir="rtl">نأسف لإبلاغك بأن المتبرع قام بحذف الغرض (<b>${item.title}</b>). لقد تم استرداد حصتك (الكوتا) تلقائياً 💚</div>`,
       });
@@ -386,6 +408,7 @@ exports.deleteItemLogic = async (itemId, userId, userRole) => {
   await itemRepository.deleteItemById(item);
   return { msg: "تم حذف الغرض نهائياً ⚖️" };
 };
+
 exports.getPendingRatingLogic = async (userId) => {
   const item = await itemRepository.findPendingRating(userId);
   return { hasPending: !!item, item: item || null };
