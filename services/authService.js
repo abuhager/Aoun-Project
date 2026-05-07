@@ -5,20 +5,19 @@ const sendEmail       = require('../utils/sendEmail');
 const userRepository  = require('../repositories/userRepository');
 const Item            = require('../models/Item');
 
-// ─── دالة مساعدة: توليد OTP ───────────────────────────
-const generateOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
+// ─ 6 أرقام (100000–999999)
+const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
 
-// ─── دالة مساعدة: توليد JWT ───────────────────────────
+// ─ JWT
 const generateToken = (user) => {
     const payload = { user: { id: user.id, role: user.role } };
     return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
 };
 
-// ─── 1. منطق التسجيل ──────────────────────────────────
+// ─── 1. منطق التسجيل
 exports.registerLogic = async ({ name, email, password, phone }) => {
     let user = await userRepository.findByEmail(email);
 
-    // حالة: موجود لكن غير مفعّل → أعد إرسال OTP
     if (user && !user.isVerified) {
         const newOtp = generateOtp();
         user.verificationOtp = newOtp;
@@ -50,7 +49,6 @@ exports.registerLogic = async ({ name, email, password, phone }) => {
         };
     }
 
-    // حالة: موجود ومفعّل
     if (user && user.isVerified) {
         return {
             statusCode: 400,
@@ -58,7 +56,6 @@ exports.registerLogic = async ({ name, email, password, phone }) => {
         };
     }
 
-    // حالة: مستخدم جديد كلياً
     const isVerifiedStudent = email.endsWith('.edu') || email.endsWith('.edu.jo');
     const otp  = generateOtp();
     const salt = await bcrypt.genSalt(10);
@@ -102,7 +99,7 @@ exports.registerLogic = async ({ name, email, password, phone }) => {
     };
 };
 
-// ─── 2. منطق تأكيد الإيميل ───────────────────────────
+// ─── 2. منطق تأكيد الإيميل
 exports.verifyEmailLogic = async ({ email, otp }) => {
     const user = await userRepository.findByEmail(email);
     if (!user)             return { statusCode: 404, body: { msg: 'المستخدم غير موجود 🛑' } };
@@ -116,7 +113,7 @@ exports.verifyEmailLogic = async ({ email, otp }) => {
     return { statusCode: 200, body: { msg: 'تم تفعيل حسابك بنجاح! يمكنك الآن تسجيل الدخول 🎉' } };
 };
 
-// ─── 3. منطق تسجيل الدخول ────────────────────────────
+// ─── 3. منطق تسجيل الدخول
 exports.loginLogic = async ({ email, password }) => {
     const user = await userRepository.findByEmailWithPassword(email);
     if (!user) return { statusCode: 400, body: { msg: 'البريد الإلكتروني غير صحيح' } };
@@ -156,7 +153,7 @@ exports.loginLogic = async ({ email, password }) => {
     };
 };
 
-// ─── 4. منطق جلب بروفايل مستخدم ──────────────────────
+// ─── 4. منطق جلب بروفايل مستخدم
 exports.getUserProfileLogic = async (userId) => {
     const [user, allDonations, completedRequests, totalRatings] = await Promise.all([
         userRepository.findById(userId),
@@ -183,14 +180,14 @@ exports.getUserProfileLogic = async (userId) => {
     };
 };
 
-// ─── 5. منطق نسيت كلمة المرور ────────────────────────
+// ─── 5. منطق نسيت كلمة المرور
 exports.forgotPasswordLogic = async (email) => {
     const user = await userRepository.findByEmail(email);
     if (!user) return { statusCode: 404, body: { msg: 'لا يوجد حساب مسجل بهذا الإيميل' } };
 
     const resetToken = crypto.randomBytes(20).toString('hex');
     user.resetPasswordToken  = crypto.createHash('sha256').update(resetToken).digest('hex');
-    user.resetPasswordExpire = Date.now() + 15 * 60 * 1000; // 15 دقيقة
+    user.resetPasswordExpire = Date.now() + 15 * 60 * 1000;
     await userRepository.saveUser(user);
 
     const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
@@ -214,7 +211,6 @@ exports.forgotPasswordLogic = async (email) => {
 
         return { statusCode: 200, body: { msg: 'تم إرسال رابط الاستعادة إلى بريدك الإلكتروني' } };
     } catch {
-        // لو فشل الإيميل نمسح التوكن ونعيد الخطأ
         user.resetPasswordToken  = undefined;
         user.resetPasswordExpire = undefined;
         await userRepository.saveUser(user);
@@ -222,7 +218,7 @@ exports.forgotPasswordLogic = async (email) => {
     }
 };
 
-// ─── 6. منطق إعادة تعيين كلمة المرور ────────────────
+// ─── 6. منطق إعادة تعيين كلمة المرور
 exports.resetPasswordLogic = async (token, newPassword) => {
     const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
     const user = await userRepository.findByResetToken(hashedToken);
