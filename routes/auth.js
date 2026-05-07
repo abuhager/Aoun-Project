@@ -1,25 +1,34 @@
-const express        = require('express');
-const router         = express.Router();
-const auth           = require('../middlewares/auth');
-const authController = require('../controllers/authController'); // ✅ ناقص هذا
+const express = require('express');
+const router = express.Router();
+const auth = require('../middlewares/auth');
+const authController = require('../controllers/authController');
 const { globalLimiter, authLimiter } = require('../middlewares/rateLimiter');
 
-// 1. التسجيل
+// التسجيل
 router.post('/register', authLimiter, authController.register);
 
-// 2. تأكيد الإيميل
+// تأكيد الإيميل
 router.post('/verify-email', authLimiter, authController.verifyEmail);
 
-// 3. تسجيل الدخول
+// تسجيل الدخول
 router.post('/login', authLimiter, authController.login);
 
-// 4. نسيت كلمة المرور
+// نسيت كلمة المرور
 router.post('/forgot-password', authLimiter, authController.forgotPassword);
 
-// 5. إعادة تعيين كلمة المرور
+// إعادة تعيين كلمة المرور
 router.post('/reset-password', authLimiter, authController.resetPassword);
 
-// 6. بروفايل المستخدم
+// بروفايل خاص
 router.get('/me', auth, authController.getUserProfile);
+
+// بروفايل عام
+router.get('/profile/:id', globalLimiter, authController.getPublicProfile);
+
+// refresh
+router.post('/refresh', authLimiter, authController.refreshToken);
+
+// logout
+router.post('/logout', auth, authController.logout);
 
 module.exports = router;

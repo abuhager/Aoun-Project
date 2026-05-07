@@ -1,29 +1,23 @@
 const User = require('../models/User');
 
-exports.findByEmail = (email) => {
-    return User.findOne({ email });
-};
+exports.findByEmail = (email) => User.findOne({ email });
 
-exports.findByEmailWithPassword = (email) => {
-    return User.findOne({ email }).select('+password');
-};
+exports.findByEmailWithPassword = (email) =>
+  User.findOne({ email }).select('+password');
 
-exports.findById = (id) => {
-    return User.findById(id).select('-password -__v');
-};
+exports.createUser = (data) => User.create(data);
 
-exports.findByResetToken = (hashedToken) => {
-    return User.findOne({
-        resetPasswordToken: hashedToken,
-        resetPasswordExpire: { $gt: Date.now() }
-    }).select('+password');
-};
+exports.saveUser = (user) => user.save();
 
-exports.createUser = (data) => {
-    const user = new User(data);
-    return user.save();
-};
+exports.findById = (id) => User.findById(id);
+exports.findByIdWithRefreshToken = (id) =>
+  User.findById(id).select('+refreshToken');
 
-exports.saveUser = (user) => {
-    return user.save();
-};
+exports.findByResetToken = (hashedToken) =>
+  User.findOne({
+    resetPasswordToken: hashedToken,
+    resetPasswordExpire: { $gt: Date.now() },
+  }).select('+password');
+
+exports.updateUser = (id, update) =>
+  User.findByIdAndUpdate(id, update, { new: true });
