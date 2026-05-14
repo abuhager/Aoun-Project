@@ -5,7 +5,6 @@ const userSchema = new mongoose.Schema(
     name:     { type: String, required: true, trim: true },
     email:    { type: String, required: true, unique: true, index: true },
 
-    // ✅ select: false — لن يُرجع في أي query إلا لو طلبته صراحةً بـ .select('+password')
     password: { type: String, required: true, select: false },
 
     phone:    { type: String },
@@ -27,17 +26,33 @@ const userSchema = new mongoose.Schema(
       enum:    ["user", "admin", "super_admin"],
     },
 
-    isVerified: { type: Boolean, default: false },
-    verificationOtp: { type: String },
+    isVerified:      { type: Boolean, default: false },
+    verificationOtp: { type: String, select: false }, // ✅ أضف select: false — لا يُرجع في الـ responses
 
     isVerifiedStudent: { type: Boolean, default: false },
     trustScore:        { type: Number, default: 70 },
     quota:             { type: Number, default: 2 },
 
-    // ✅ جديد — المرحلة 1
-    refreshToken:   { type: String, select: false },        // للـ Refresh Token (HttpOnly Cookie)
-    totalDonations: { type: Number, default: 0 },           // عدد التبرعات المكتملة (للـ Leaderboard)
-    badges:         { type: [String], default: [] },        // الأوسمة: ['first_donation', 'top_donor', ...]
+    refreshToken:   { type: String, select: false },
+    totalDonations: { type: Number, default: 0 },
+    badges:         { type: [String], default: [] },
+
+    // ✅ جديد — Phase 2 Trust System
+    trustLevel: {
+      type:    Number,
+      enum:    [1, 2],
+      default: 1,
+    },
+
+    phoneVerified: {
+      type:    Boolean,
+      default: false,
+    },
+
+    promotedByAdmin: {
+      type:    Boolean,
+      default: false,
+    },
   },
   { timestamps: true }
 );

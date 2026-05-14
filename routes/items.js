@@ -4,6 +4,7 @@ const router = express.Router();
 const upload = require('../middlewares/upload'); // لرفع الصور
 const auth = require('../middlewares/auth'); // مصادقة JWT
 const validateObjectId = require('../middlewares/validateObjectId'); // ✅ التحقق من ObjectId
+const { requireLevel2 } = require('../middlewares/auth');
 
 // استيراد الـ controllers
 const {
@@ -23,7 +24,7 @@ router.put('/update/:id', [auth, validateObjectId, upload.single('image')], upda
 router.delete('/delete/:id', [auth, validateObjectId], deleteItem);
 
 // عمليات الحجز والتسليم (ID صالح مطلوب)
-router.put('/book/:id', [auth, validateObjectId], bookItem);
+router.put('/book/:id', [auth, requireLevel2, validateObjectId], bookItem);
 router.put('/cancel/:id', [auth, validateObjectId], cancelBooking);
 router.put('/complete/:id', [auth, validateObjectId], completeDelivery);
 router.put('/rate/:id', [auth, validateObjectId], rateItem);
