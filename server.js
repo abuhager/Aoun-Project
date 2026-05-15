@@ -9,6 +9,9 @@ require('dotenv').config();
 
 const app = express();
 
+// ✅ مهم على Render / أي reverse proxy
+app.set('trust proxy', 1);
+
 app.use(
   helmet({
     crossOriginResourcePolicy: false,
