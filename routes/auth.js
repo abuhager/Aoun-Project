@@ -1,8 +1,12 @@
-const express       = require('express');
-const router        = express.Router();
-const auth          = require('../middlewares/auth');
+const express = require('express');
+const router = express.Router();
+const auth = require('../middlewares/auth');
 const authController = require('../controllers/authController');
-const { globalLimiter, authLimiter } = require('../middlewares/rateLimiter');
+const {
+  globalLimiter,
+  authLimiter,
+  refreshLimiter,
+} = require('../middlewares/rateLimiter');
 
 // التسجيل
 router.post('/register', authLimiter, authController.register);
@@ -25,8 +29,8 @@ router.get('/me', auth, authController.getUserProfile);
 // بروفايل عام
 router.get('/profile/:id', globalLimiter, authController.getPublicProfile);
 
-// refresh (بدون auth middleware)
-router.post('/refresh', authLimiter, authController.refreshToken);
+// ✅ refresh له limiter أخف
+router.post('/refresh', refreshLimiter, authController.refreshToken);
 
 // logout
 router.post('/logout', auth, authController.logout);

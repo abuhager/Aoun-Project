@@ -14,9 +14,8 @@ app.use(
     crossOriginResourcePolicy: false,
   })
 );
-app.use(cookieParser());
 
-app.use('/api/', globalLimiter);
+app.use(cookieParser());
 
 const allowedOrigins = [
   'http://localhost:3000',
@@ -48,6 +47,7 @@ app.use(
 
 app.use(express.json({ limit: '10mb' }));
 
+// ✅ health قبل أي limiter
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'ok',
@@ -67,14 +67,19 @@ mongoose
 
 app.get('/', (req, res) => res.send('Aoun Server is Live! 🚀'));
 
+// ✅ limiter فقط على items
+app.use('/api/items', globalLimiter, require('./routes/items'));
+
+// ✅ auth بدون globalLimiter — كل route له limiter الخاص
 app.use('/api/auth', require('./routes/auth'));
-app.use('/api/items', require('./routes/items'));
 
 app.use((err, req, res, next) => {
   console.error('🔥 Global Error Handler:', err.stack);
-  res.status(500).json({
-    message: 'حدث خطأ داخلي في السيرفر',
-    error: err.message,
+
+  const statusCode = err.status || err.statusCode || 500;
+
+  res.status(statusCode).json({
+    message: err.message || 'حدث خطأ داخلي في السيرفر',
   });
 });
 
